@@ -44,6 +44,32 @@ Then open the scene:
 open output/trex_editable.blend    # select the armature, Pose Mode, Space to play
 ```
 
+## Desktop viewer (mesh + rig)
+
+A reusable viewer tool ships with the repository. It opens a real Blender
+window configured as a model viewer: the GLB is imported fresh (confirming the
+file is self-contained), the skeleton is drawn in front of the mesh in stick
+style, and the Walk cycle plays on a loop.
+
+```bash
+python3 viewer.py            # view output/trex_blender_rig.glb
+python3 viewer.py --blend    # view output/trex_editable.blend instead
+python3 viewer.py --check    # headless validation, no window
+```
+
+The launcher works on macOS, Linux and Windows: it finds Blender via
+`BLENDER_BIN`, then `blender` on `PATH`, then the standard install locations
+for the OS.
+
+Inside the window:
+
+- `Space` plays/pauses; mouse buttons orbit/pan/zoom as usual
+- press `N` for the **T-Rex Viewer** sidebar tab: mesh / skeleton visibility,
+  wireframe overlay, shading mode (Solid / Material Preview / Rendered /
+  Wireframe), Play-Pause and Reset View buttons
+- `Solid` shading is the rig-inspection mode: the bones read clearly over the
+  mesh silhouette
+
 ## Outputs
 
 | File | What it is |
@@ -158,6 +184,8 @@ verify_glb.py          GLB structure/animation verifier
 test_rig_math.py       no-Blender preflight assertions
 run_all.sh             one-command pipeline
 run_mac.sh             rig-only convenience script
+viewer.py              cross-platform desktop viewer launcher (macOS/Windows/Linux)
+trex_viewer.py         in-Blender viewer: mesh + skeleton + Walk playback
 lib_trex.py            shared helpers (world-axis pose math, cameras)
 output/                generated blend + GLB (committed for convenience)
 diagnostics/           generated render evidence
