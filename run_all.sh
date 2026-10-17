@@ -14,20 +14,28 @@ if [[ ! -x "$BLENDER" ]]; then
   fi
 fi
 
-echo "== 1/4 preflight (no Blender needed)"
+echo "== 1/5 preflight (no Blender needed)"
 python3 test_rig_math.py
 
-echo "== 2/4 build rig"
+echo "== 2/5 build rig"
 "$BLENDER" --background --factory-startup --python rig_trex_blender.py -- --clean-scene
 
-echo "== 3/4 animate walk + export GLB + preview sheet"
+echo "== 3/5 animate walk + export GLB + preview sheet"
 "$BLENDER" --background --factory-startup --python animate_trex.py -- --export-glb --preview
 
-echo "== 4/4 verify GLB"
+echo "== 4/5 verify GLB"
 python3 verify_glb.py output/trex_blender_rig.glb
+
+echo "== 5/5 viewer check (GLB parse + joint table)"
+if python3 -c 'import numpy' 2>/dev/null; then
+  python3 viewer.py --check
+else
+  echo "numpy not installed - skipping; pip install -r viewer/requirements.txt"
+fi
 
 echo
 echo "ALL DONE."
 echo "  output/trex_editable.blend  -> open, select armature, Pose Mode, Space to play"
 echo "  output/trex_blender_rig.glb -> 'Walk' clip, loops at 1.33 s"
+echo "  python3 viewer.py           -> native desktop viewer: mesh + rig + walk"
 echo "  diagnostics/walk/walk_contact_sheet.png -> rendered preview"

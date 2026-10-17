@@ -27,6 +27,8 @@ demo's clip. See [NOTICE.md](NOTICE.md) for asset attribution.
   - or any install; point `BLENDER_BIN` at the binary, or have `blender`
     on `PATH`
 - Python 3 for the preflight test and the GLB verifier (standard library only)
+- For the desktop viewer only: Python 3 with `pyglet` and `numpy`
+  (`python3 -m pip install -r viewer/requirements.txt`)
 
 ## Quick start
 
@@ -34,9 +36,10 @@ demo's clip. See [NOTICE.md](NOTICE.md) for asset attribution.
 ./run_all.sh
 ```
 
-That runs four steps: preflight test (no Blender) → build rig → animate walk,
-export GLB, render preview → verify GLB. Everything is regenerated from
-`source/dino/dino.obj`; nothing in `output/` is hand-edited.
+That runs five steps: preflight test (no Blender) → build rig → animate walk,
+export GLB, render preview → verify GLB → viewer check (skipped when numpy is
+not installed). Everything is regenerated from `source/dino/dino.obj`; nothing
+in `output/` is hand-edited.
 
 Then open the scene:
 
@@ -44,31 +47,50 @@ Then open the scene:
 open output/trex_editable.blend    # select the armature, Pose Mode, Space to play
 ```
 
-## Desktop viewer (mesh + rig)
+## Desktop viewer (mesh + rig + walk)
 
-A reusable viewer tool ships with the repository. It opens a real Blender
-window configured as a model viewer: the GLB is imported fresh (confirming the
-file is self-contained), the skeleton is drawn in front of the mesh in stick
-style, and the Walk cycle plays on a loop.
+`viewer.py` is a native desktop viewer built for this repository — not a
+Blender window and not a web page. It parses the exported GLB itself
+(container, node graph, skin, animation, embedded PNGs), skins the mesh on the
+GPU and draws the skeleton over it, so what you see is the committed
+`output/trex_blender_rig.glb`. It runs on macOS, Windows and Linux with
+Python 3, [pyglet](https://pyglet.org/) and numpy.
 
 ```bash
-python3 viewer.py            # view output/trex_blender_rig.glb
-python3 viewer.py --blend    # view output/trex_editable.blend instead
-python3 viewer.py --check    # headless validation, no window
+python3 -m pip install -r viewer/requirements.txt   # pyglet + numpy, one time
+
+python3 viewer.py                 # open the window on output/trex_blender_rig.glb
+python3 viewer.py --glb FILE.glb  # view another compatible GLB
+python3 viewer.py --check         # headless validation, no window
+python3 viewer.py --screenshot out.png --time 0.667   # one frame to PNG
 ```
 
-The launcher works on macOS, Linux and Windows: it finds Blender via
-`BLENDER_BIN`, then `blender` on `PATH`, then the standard install locations
-for the OS.
+On systems with a PEP 668 Python (Homebrew, some Linux distros), install with
+a virtualenv, or `python3 -m pip install --user --break-system-packages
+-r viewer/requirements.txt`.
 
-Inside the window:
+Window controls:
 
-- `Space` plays/pauses; mouse buttons orbit/pan/zoom as usual
-- press `N` for the **T-Rex Viewer** sidebar tab: mesh / skeleton visibility,
-  wireframe overlay, shading mode (Solid / Material Preview / Rendered /
-  Wireframe), Play-Pause and Reset View buttons
-- `Solid` shading is the rig-inspection mode: the bones read clearly over the
-  mesh silhouette
+| Key | Action |
+|---|---|
+| `Space` | play / pause the Walk clip |
+| `Left` / `Right` | scrub one frame back / forward |
+| `M` | mesh on/off |
+| `R` | skeleton on/off |
+| `W` | wireframe overlay |
+| `T` | bones drawn in front of the mesh |
+| `G` | ground grid on/off |
+| `L` | lighting: shaded, headlight only, unlit |
+| `F` | reset camera |
+| mouse | drag to orbit, shift-drag (or right-drag) to pan, wheel to zoom |
+
+The renderer is our own OpenGL 3.3 code: GLB accessors decoded in `viewer/glb.py`,
+scene graph/animation/skinning in `viewer/scene.py`, and the shaders, buffers,
+textures (nearest filtering for the PS1 pixel look), grid, skeleton and
+screenshot readback in `viewer/renderer.py`. `viewer.py --check` validates the
+structure the viewer depends on (7 primitives, 28 joints, 6 textures, `Walk`
+at 40 frames / 30 fps) and prints joint world positions at frames 0/10/20/30;
+those match the Blender rig's pose bones to the millimetre.
 
 ## Outputs
 
@@ -88,6 +110,8 @@ Inside the window:
 | `diagnose_rig.py` | Headless rig diagnostics: bone axis table and signed test-pose renders into `diagnostics/rig/` |
 | `check_walk.py` | Numeric walk trace: claw-tip height per key frame, ground-penetration check |
 | `verify_glb.py` | Parses the GLB's JSON chunk: skin, joints, textures, animation name/duration |
+| `viewer.py` | Native desktop viewer (no Blender, no browser); `--check` validates the GLB headlessly |
+| `viewer/` | Viewer package: `glb.py` container/accessors, `scene.py` graph+skinning, `renderer.py` OpenGL, `app.py` window |
 | `test_rig_math.py` | No-Blender preflight: source integrity, weight normalization per vertex, foot-target table sanity |
 | `run_all.sh` / `run_mac.sh` | One-shot full pipeline / rig-only pass |
 
@@ -135,6 +159,7 @@ python3 verify_glb.py
 ```bash
 python3 test_rig_math.py          # source + weights + foot table, no Blender
 ./run_all.sh                      # full regeneration + GLB verification
+python3 viewer.py --check         # viewer: GLB structure + joint positions
 "${BLENDER_BIN:-/Applications/Blender.app/Contents/MacOS/Blender}" \
   -b --factory-startup --python check_walk.py        # numeric walk trace
 "${BLENDER_BIN:-/Applications/Blender.app/Contents/MacOS/Blender}" \
@@ -184,8 +209,8 @@ verify_glb.py          GLB structure/animation verifier
 test_rig_math.py       no-Blender preflight assertions
 run_all.sh             one-command pipeline
 run_mac.sh             rig-only convenience script
-viewer.py              cross-platform desktop viewer launcher (macOS/Windows/Linux)
-trex_viewer.py         in-Blender viewer: mesh + skeleton + Walk playback
+viewer.py              native desktop viewer + headless GLB check
+viewer/                viewer package: GLB parser, scene/skinning, OpenGL renderer, window
 lib_trex.py            shared helpers (world-axis pose math, cameras)
 output/                generated blend + GLB (committed for convenience)
 diagnostics/           generated render evidence
