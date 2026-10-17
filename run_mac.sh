@@ -10,5 +10,5 @@ if [[ ! -x "$BLENDER" ]]; then
     exit 1
   fi
 fi
-"$BLENDER" --background --factory-startup --python rig_trex_blender.py -- --export-glb
+"$BLENDER" --background --factory-startup --python rig_trex_blender.py -- --clean-scene --export-glb
 printf '\nSaídas esperadas: output/trex_editable.blend e output/trex_blender_rig.glb\n'

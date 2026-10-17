@@ -348,6 +348,8 @@ def argument_parser():
     ap.add_argument('--out-dir',type=Path,default=DEFAULT_OUT)
     ap.add_argument('--export-glb',action='store_true',help='Export Blender-made GLB (no animation clips)')
     ap.add_argument('--no-save',action='store_true')
+    ap.add_argument('--clean-scene',action='store_true',
+                    help='Delete every existing object before building (removes the factory-startup Cube/Light/Camera)')
     args = sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
     return ap.parse_args(args)
 
@@ -358,6 +360,13 @@ def main():
     out=args.out_dir.expanduser().resolve()
     if not obj_path.is_file():
         raise FileNotFoundError(f'OBJ not found: {obj_path}')
+    if args.clean_scene:
+        for ob in list(bpy.data.objects):
+            bpy.data.objects.remove(ob,do_unlink=True)
+        default_collection=bpy.data.collections.get('Collection')
+        if default_collection is not None:
+            bpy.data.collections.remove(default_collection)
+        print('CLEAN SCENE: removed all pre-existing objects/collection')
     out.mkdir(parents=True,exist_ok=True)
     coll=bpy.data.collections.new(COLLECTION_NAME)
     bpy.context.scene.collection.children.link(coll)
