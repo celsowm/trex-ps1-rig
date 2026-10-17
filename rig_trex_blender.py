@@ -378,7 +378,7 @@ def main():
     # Keep the render engine supplied by the installed Blender version.
     bpy.context.scene.unit_settings.system='METRIC'
     bpy.context.scene.unit_settings.scale_length=1.0
-    bpy.context.scene['T-Rex PS1 note']='Real OBJ, preserved UV/texture; joints are editable, animations intentionally absent.'
+    bpy.context.scene['T-Rex PS1 note']='Real OBJ, preserved UV/texture; joints are editable. Run animate_trex.py to add the reconstructed Walk cycle.'
     print('TREX BLENDER RIG: original vertices=',len(verts),'triangles=',len(mesh.data.polygons))
     print('TREX BLENDER RIG: deform bones=',len([b for b in rig.data.bones if b.use_deform]))
     print('TREX BLENDER RIG: strongest influenced groups=',sorted(stats.items(),key=lambda p:-p[1])[:8])

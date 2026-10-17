@@ -90,6 +90,12 @@ def wq(pbone, rotations):
     return (rest.inverted() @ r_world @ rest).to_quaternion()
 
 
+def wloc(pbone, world_vec):
+    """Bone-local location for a desired world-space offset (parents at rest)."""
+    rest = pbone.bone.matrix_local.to_3x3()
+    return rest.inverted() @ Vector(world_vec)
+
+
 def clear_pose(rig):
     for pb in rig.pose.bones:
         pb.rotation_mode = 'QUATERNION'
@@ -205,11 +211,11 @@ def camera_views(mesh, rig):
     length = (hi - lo).length
     target = (center.x, center.y, max(center.z, lo.z + (hi.z - lo.z) * 0.45))
     side = add_camera(
-        'CAM_side', (1.0, 0.0, 0.0), target,
+        'CAM_side', (1.0, 0.0, 0.12), target,
         ortho_scale=max((hi - lo).x, (hi - lo).y) * 1.15,
     )
     front = add_camera(
-        'CAM_front', (0.0, -1.0, 0.0), target, ortho_scale=3.2,
+        'CAM_front', (0.0, -1.0, 0.07), target, ortho_scale=3.2,
     )
     threeq = add_camera(
         'CAM_three_quarter', (0.75, -0.75, 0.25), target,
