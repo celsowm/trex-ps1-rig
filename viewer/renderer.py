@@ -215,33 +215,36 @@ class OrbitCamera:
         self.yaw = yaw
         self.pitch = pitch
 
-    def eye(self):
+    def eye(self, distance=None):
+        distance = self.distance if distance is None else distance
         cos_pitch = math.cos(self.pitch)
         offset = np.array([
             math.sin(self.yaw) * cos_pitch,
             math.sin(self.pitch),
             math.cos(self.yaw) * cos_pitch,
-        ], np.float32) * self.distance
+        ], np.float32) * distance
         return self.target + offset
 
-    def view_proj(self, aspect):
-        eye = self.eye()
-        near = max(self.distance * 0.002, 0.02)
-        far = self.distance * 40.0 + 50.0
+    def view_proj(self, aspect, distance=None):
+        distance = self.distance if distance is None else distance
+        eye = self.eye(distance)
+        near = max(distance * 0.002, 0.02)
+        far = distance * 40.0 + 50.0
         return perspective(self.fov, aspect, near, far) @ look_at(eye, self.target)
 
     def orbit(self, dx, dy):
         self.yaw -= dx * 0.0075
         self.pitch = float(np.clip(self.pitch + dy * 0.0075, -1.40, 1.40))
 
-    def pan(self, dx, dy, viewport_height):
+    def pan(self, dx, dy, viewport_height, distance=None):
+        distance = self.distance if distance is None else distance
         forward = self.target - self.eye()
         forward /= max(np.linalg.norm(forward), 1e-8)
         right = np.cross(forward, np.array([0.0, 1.0, 0.0], np.float32))
         right /= max(np.linalg.norm(right), 1e-8)
         up = np.cross(right, forward)
         world_per_pixel = (2.0 * math.tan(math.radians(self.fov) / 2.0)
-                           * self.distance / max(viewport_height, 1))
+                           * distance / max(viewport_height, 1))
         self.target += (-right * dx + up * dy) * world_per_pixel
 
     def zoom(self, amount):
@@ -565,7 +568,7 @@ class Renderer:
         self.joints.update(positions)
 
     def draw(self, scene, time, camera, flags, light_mode, viewport,
-             pixel_scale=1.0):
+             pixel_scale=1.0, distance_scale=1.0):
         width, height = viewport
         glViewport(0, 0, max(width, 1), max(height, 1))
         glClearColor(*BACKGROUND)
@@ -575,7 +578,7 @@ class Renderer:
         glDisable(GL_CULL_FACE)  # every material is double-sided
 
         aspect = width / max(height, 1)
-        view_proj = camera.view_proj(aspect)
+        view_proj = camera.view_proj(aspect, camera.distance * distance_scale)
         eye = camera.eye()
 
         if flags['grid']:

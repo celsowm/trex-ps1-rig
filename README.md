@@ -69,20 +69,27 @@ On systems with a PEP 668 Python (Homebrew, some Linux distros), install with
 a virtualenv, or `python3 -m pip install --user --break-system-packages
 -r viewer/requirements.txt`.
 
-Window controls:
+Window controls — the right-hand **control panel** shows the same commands as
+clickable buttons (play/pause, step, display toggles, lighting, camera reset):
 
-| Key | Action |
+| Key / control | Action |
 |---|---|
-| `Space` | play / pause the Walk clip |
-| `Left` / `Right` | scrub one frame back / forward |
-| `M` | mesh on/off |
-| `R` | skeleton on/off |
-| `W` | wireframe overlay |
-| `T` | bones drawn in front of the mesh |
-| `G` | ground grid on/off |
-| `L` | lighting: shaded, headlight only, unlit |
-| `F` | reset camera |
+| `Space` or the Play button | play / pause the Walk clip |
+| `Left` / `Right` (or `− 1 frame` / `+ 1 frame`) | scrub one frame back / forward |
+| `M` or the Mesh toggle | mesh on/off |
+| `R` or the Skeleton toggle | skeleton on/off |
+| `W` or the Wireframe toggle | wireframe overlay |
+| `T` or the Bones on top toggle | bones drawn in front of the mesh |
+| `G` or the Grid toggle | ground grid on/off |
+| `L` or the Shaded / Direct / Unlit buttons | lighting: shaded, headlight only, unlit |
+| `F` or the Reset view button | reset camera |
+| `P` | show / hide the control panel |
 | mouse | drag to orbit, shift-drag (or right-drag) to pan, wheel to zoom |
+
+The panel, its buttons and the playback bar are drawn by our own UI code in
+`viewer/app.py` (pyglet rectangles and labels with manual hit testing in window
+pixels). While the panel is visible the 3D viewport shrinks to the free area
+and the camera compensates so the model is never cropped.
 
 The renderer is our own OpenGL 3.3 code: GLB accessors decoded in `viewer/glb.py`,
 scene graph/animation/skinning in `viewer/scene.py`, and the shaders, buffers,
