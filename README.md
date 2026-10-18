@@ -85,12 +85,18 @@ clickable buttons (play/pause, step, display toggles, lighting, camera reset):
 | `L` or the Shaded / Direct / Unlit buttons | lighting: shaded, headlight only, unlit |
 | `F` or the Reset view button | reset camera |
 | `P` | show / hide the control panel |
-| mouse | drag to orbit, shift-drag (or right-drag) to pan, wheel to zoom |
+| mouse | drag to orbit, shift-drag (or right-drag) to pan |
+| wheel / trackpad | scroll to zoom (wheel notches take fixed steps; trackpad deltas zoom proportionally, momentum clamped per event) |
+| trackpad pinch (macOS) | pinch to zoom in / out |
 
 The panel, its buttons and the playback bar are drawn by our own UI code in
 `viewer/app.py` (pyglet rectangles and labels with manual hit testing in window
 pixels). While the panel is visible the 3D viewport shrinks to the free area
-and the camera compensates so the model is never cropped.
+and the camera compensates so the model is never cropped. Zoom is built for
+Mac trackpads: precise two-finger deltas zoom proportionally (momentum clamped
+per event, wheel notches take fixed 12% steps) and `viewer/mac_gestures.py`
+adds the pinch gesture pyglet does not expose by installing a
+`magnifyWithEvent:` hook on its Cocoa view.
 
 The renderer is our own OpenGL 3.3 code: GLB accessors decoded in `viewer/glb.py`,
 scene graph/animation/skinning in `viewer/scene.py`, and the shaders, buffers,
@@ -219,7 +225,7 @@ test_rig_math.py       no-Blender preflight assertions
 run_all.sh             one-command pipeline
 run_mac.sh             rig-only convenience script
 viewer.py              native desktop viewer + headless GLB check
-viewer/                viewer package: GLB parser, scene/skinning, OpenGL renderer, window
+viewer/                viewer package: GLB parser, scene/skinning, renderer, window, macOS pinch hook
 lib_trex.py            shared helpers (world-axis pose math, cameras)
 output/                generated blend + GLB (committed for convenience)
 diagnostics/           generated render evidence

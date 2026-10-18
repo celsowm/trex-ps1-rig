@@ -248,7 +248,18 @@ class OrbitCamera:
         self.target += (-right * dx + up * dy) * world_per_pixel
 
     def zoom(self, amount):
-        self.distance = float(np.clip(self.distance * (0.9 ** amount), 0.4, 200.0))
+        """Wheel-style zoom: one unit is a 10% step (positive = closer)."""
+        self.zoom_scale(0.9 ** -amount)
+
+    def zoom_scale(self, scale):
+        """Scale the camera distance (``scale`` > 1 moves the eye closer).
+
+        Callers pass a per-event factor, so trackpad deltas can zoom in small
+        smooth steps while wheel notches take bigger ones. The 0.5-2.0 net
+        keeps a single bad event from catapulting the camera.
+        """
+        scale = min(max(float(scale), 0.5), 2.0)
+        self.distance = float(np.clip(self.distance / scale, 0.4, 200.0))
 
 
 # ------------------------------------------------------------- GL helpers

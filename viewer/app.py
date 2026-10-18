@@ -21,18 +21,35 @@ from pyglet.text import Label
 
 from .renderer import OrbitCamera, Renderer, read_framebuffer
 from .scene import TrexScene
+from . import mac_gestures
+
+# Pinch gestures arrive through our own Cocoa hook (see viewer/mac_gestures.py),
+# so the event type has to exist before any window is built.
+pyglet.window.Window.register_event_type(mac_gestures.EVENT)
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 800
 
 HELP_LINES = (
     'Space play/pause   Left/Right scrub   M mesh   R rig   W wireframe   T bones on top',
-    'G grid   L lighting   F reset view   P panel   Mouse: drag orbit, shift/right-drag pan, wheel zoom',
+    'G grid   L lighting   F reset view   P panel   Mouse: drag orbit, shift/right-drag pan, scroll/pinch zoom',
 )
 
 DEFAULT_YAW = 0.95
 DEFAULT_PITCH = 0.12
 DEFAULT_FRAME = 2.05  # camera distance = frame * model radius
+
+# Zoom response. A mouse wheel arrives as whole notches (one per click) while a
+# Mac trackpad sends a fast stream of precise fractional deltas plus momentum
+# after a flick. Notches take a fixed step; precise deltas scale with the
+# movement but are clamped per event, so momentum zooms smoothly instead of
+# jumping straight to the limits.
+WHEEL_ZOOM_STEP = 0.12        # distance factor per wheel notch
+WHEEL_MAX_NOTCHES = 3         # bigger integer deltas are momentum, not clicks
+PRECISE_ZOOM_PER_POINT = 0.05
+MAX_PRECISE_ZOOM_STEP = 0.07
+PINCH_ZOOM_RATE = 1.5         # per unit of pinch magnification
+MAX_PINCH_STEP = 0.25
 
 # Control panel palette (RGBA 0-255)
 PANEL_WIDTH = 252          # in points; multiplied by the display scale
@@ -275,6 +292,7 @@ class ViewerWindow(pyglet.window.Window):
         self._build_hud()
         self.panel = ControlPanel(self)
         self._camera_drag = False
+        self.pinch_zoom = mac_gestures.enable_pinch(self)
         pyglet.clock.schedule_interval(self._tick, 1.0 / 120.0)
 
     # ------------------------------------------------------------ actions
@@ -446,12 +464,41 @@ class ViewerWindow(pyglet.window.Window):
         else:
             self.camera.orbit(dx, dy)
 
+    @staticmethod
+    def zoom_step(scroll_y):
+        """Distance factor for one scroll event, wheel and trackpad alike.
+
+        Small whole notches (a mouse wheel, or a smooth-scrolling mouse that
+        reports line deltas) take a fixed step. Fractional deltas and large
+        momentum spikes (Mac trackpad) zoom proportionally but never jump
+        more than ``MAX_PRECISE_ZOOM_STEP`` per event.
+        """
+        delta = float(scroll_y)
+        notches = (abs(delta) >= 0.99 and abs(delta - round(delta)) < 1e-6
+                   and abs(delta) <= WHEEL_MAX_NOTCHES)
+        if notches:
+            step = WHEEL_ZOOM_STEP * delta
+        else:
+            step = PRECISE_ZOOM_PER_POINT * delta
+            step = max(-MAX_PRECISE_ZOOM_STEP, min(MAX_PRECISE_ZOOM_STEP, step))
+        return step
+
+    def _over_panel(self, x, y):
+        if not self.panel.visible:
+            return False
+        px, _ = self._ui_mouse(x, y)
+        return px >= self.panel.panel_x
+
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        if self.panel.visible:
-            px, _ = self._ui_mouse(x, y)
-            if px >= self.panel.panel_x:
-                return
-        self.camera.zoom(scroll_y)
+        if self._over_panel(x, y):
+            return
+        self.camera.zoom_scale(1.0 + self.zoom_step(scroll_y))
+
+    def on_magnify(self, magnification):
+        """Trackpad pinch (see viewer/mac_gestures.py)."""
+        step = max(-MAX_PINCH_STEP, min(MAX_PINCH_STEP,
+                                        PINCH_ZOOM_RATE * float(magnification)))
+        self.camera.zoom_scale(1.0 + step)
 
 
 def run(glb_path, width=WINDOW_WIDTH, height=WINDOW_HEIGHT):
