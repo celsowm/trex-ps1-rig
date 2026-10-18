@@ -7,8 +7,12 @@ import ast, math
 base=Path(__file__).resolve().parent
 script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
-functions=['smoothstep','axial_weights','limb_bands','vertex_weights','parse_obj']
-body=[node for node in mod.body if isinstance(node,ast.FunctionDef) and node.name in functions]
+functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
+           'vertex_weights','parse_obj']
+body=[node for node in mod.body
+      if (isinstance(node,ast.FunctionDef) and node.name in functions)
+      or (isinstance(node,ast.Assign)
+          and getattr(node.targets[0],'id','')=='TOE_LANES')]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -25,11 +29,11 @@ for v in vertices:
     for name,weight in w.items():
         if weight>0.0001: counts[name]+=1
 for side in ('L','R'):
-    for seg in ['Thigh','Shin','Tarsus','Foot','Toes']:
+    for seg in ['Thigh','Shin','Tarsus','Foot','Toe1','Toe2','Toe3']:
         assert counts[f'{seg}.{side}']>5, f'Missing useful weights: {seg}.{side}'
 print(f'PASS: {len(vertices)} original vertices, {len(faces)} triangles, {len(counts)} influenced bone groups')
 print('Right/left leg vertex counts:')
-for name in ('Thigh','Shin','Tarsus','Foot','Toes'):
+for name in ('Thigh','Shin','Tarsus','Foot','Toe1','Toe2','Toe3'):
     print(f'  {name}: left {counts[name+".L"]}, right {counts[name+".R"]}')
 
 # Walk-cycle sanity without Blender: the foot-target table must stay above
@@ -41,8 +45,8 @@ assert tables, 'FOOT_TARGETS not found in animate_trex.py'
 targets=ast.literal_eval(tables[0].value)
 assert len(targets)==9, f'Expected 9 foot-target rows, got {len(targets)}'
 assert targets[0]==targets[-1], 'FOOT_TARGETS must loop (first row == last row)'
-assert all(row[1]>=0.03 for row in targets), 'A claw target would sink below ground'
-assert min(row[0] for row in targets)<=-0.5, 'No real forward reach in the stride'
+assert all(row[1]>=0.005 for row in targets), 'A claw target would sink into the ground'
+assert min(row[0] for row in targets)<=-0.45, 'No real forward reach in the stride'
 print(f'PASS: FOOT_TARGETS has {len(targets)} rows, loops, claws stay >= '
       f'{min(row[1] for row in targets):.3f} m above ground')
 print('NOTE: numeric tests cannot validate deformation quality in Blender.')

@@ -52,7 +52,7 @@ N_PHASES = 9        # FOOT_TARGETS rows, = CYCLE / KEY_STEP + 1
 HIP_YZ = (0.32, 1.43)
 KNEE_YZ = (-0.23, 0.98)
 HOCK_YZ = (0.25, 0.375)
-TOE_TIP_YZ = (-0.324, 0.042)
+TOE_TIP_YZ = (-0.283, 0.001)   # middle claw tip, source (3.39, 0.01, 2.83) * 0.1
 
 L1 = math.dist(HIP_YZ, KNEE_YZ)         # thigh
 L2 = math.dist(KNEE_YZ, HOCK_YZ)        # shin
@@ -64,20 +64,21 @@ TOE_TO_HOCK = (HOCK_YZ[0] - TOE_TIP_YZ[0], HOCK_YZ[1] - TOE_TIP_YZ[1])
 
 # ------------------------------------------------------- foot target table
 # One row per 1/8 cycle, phase 0 = mid-stance under the body.
-# Columns: claw-tip y (forward is negative), claw-tip z (ground ~0.03-0.06),
-# heel-rise delta: world angle of the whole foot unit vs. rest (flat = 0,
-# positive = hock rises while claws keep their spot -> heel-off roll).
+# Columns: claw-tip y (forward is negative), claw-tip z (middle claw tip;
+# ~0.01 = claws just touching the ground) and the heel-rise delta: world
+# angle of the whole foot unit vs. rest (flat = 0, positive = hock rises
+# while the claws keep their spot -> heel-off roll).
 FOOT_TARGETS = [
     # y      z      heel
-    (-0.30, 0.035, 0.0),    # 0.000 mid-stance, sole flat
-    (-0.20, 0.035, 4.0),    # 0.125 late stance, sweeping back
-    (-0.06, 0.060, 18.0),   # 0.250 toe-off, heel high, claws planted
-    (-0.16, 0.200, 14.0),   # 0.375 early swing, lifted
-    (-0.34, 0.260, 16.0),   # 0.500 mid swing, highest
-    (-0.48, 0.220, 12.0),   # 0.625 forward travel
-    (-0.52, 0.120, 4.0),    # 0.750 reach, descending
-    (-0.44, 0.055, -6.0),   # 0.875 touchdown, claws dipping
-    (-0.30, 0.035, 0.0),    # 1.000 = mid-stance again (loop)
+    (-0.259, 0.008, 0.0),   # 0.000 mid-stance, sole flat
+    (-0.159, 0.008, 4.0),   # 0.125 late stance, sweeping back
+    (-0.019, 0.028, 18.0),  # 0.250 toe-off, heel high, claws planted
+    (-0.119, 0.160, 14.0),  # 0.375 early swing, lifted
+    (-0.299, 0.220, 16.0),  # 0.500 mid swing, highest
+    (-0.439, 0.180, 12.0),  # 0.625 forward travel
+    (-0.479, 0.085, 4.0),   # 0.750 reach, descending
+    (-0.399, 0.020, -6.0),  # 0.875 touchdown, claws dipping
+    (-0.259, 0.008, 0.0),   # 1.000 = mid-stance again (loop)
 ]
 
 # ---------------------------------------------------------------- body knobs
@@ -170,7 +171,12 @@ def leg_rotation_list(t, side):
         f'Shin.{side}': [('X', shin)],
         f'Tarsus.{side}': [('X', tarsus)],
         f'Foot.{side}': [('X', 0.0)],
-        f'Toes.{side}': [('X', toes)],
+        # One bone per toe: the long inner toe curls a little more than the
+        # short outer toe, so the claws move individually instead of as one
+        # rigid slab hinged off a shared bone.
+        f'Toe1.{side}': [('X', toes * 1.15)],
+        f'Toe2.{side}': [('X', toes)],
+        f'Toe3.{side}': [('X', toes * 0.85)],
     }
 
 

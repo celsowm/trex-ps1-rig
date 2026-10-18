@@ -22,6 +22,14 @@ import lib_trex as lt
 
 DEFAULT_BLEND = SCRIPT_DIR / 'output' / 'trex_editable.blend'
 
+TOE_BONES = ('Toe1', 'Toe2', 'Toe3')   # inner, middle, outer
+
+
+def toe_tips(rig, side):
+    """World-space tips of the three toe bones of one foot."""
+    return [rig.matrix_world @ rig.pose.bones[f'{toe}.{side}'].tail
+            for toe in TOE_BONES]
+
 
 def parse_args():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -39,7 +47,7 @@ def main():
     if rig.animation_data is None or rig.animation_data.action is None:
         raise RuntimeError('No animation on the rig; run animate_trex.py first')
 
-    print('frame |  ToeTip.L  y/z       |  ToeTip.R  y/z       | pelvis z')
+    print('frame | lowest claw L  y/z   | lowest claw R  y/z   | pelvis z')
     print('------+----------------------+----------------------+---------')
     worst = {'penetration': 0.0, 'float': 0.0}
     for frame in range(scene.frame_start, scene.frame_end + 1, args.step):
@@ -47,24 +55,24 @@ def main():
         bpy.context.view_layer.update()
         row = [f'{frame:5d}']
         for side in ('L', 'R'):
-            tail = rig.matrix_world @ rig.pose.bones[f'Toes.{side}'].tail
-            row.append(f'{tail.y:+.3f} / {tail.z:+.3f}')
+            tip = min(toe_tips(rig, side), key=lambda point: point.z)
+            row.append(f'{tip.y:+.3f} / {tip.z:+.3f}')
         pelvis = rig.matrix_world @ rig.pose.bones['Pelvis'].head
         row.append(f'{pelvis.z:+.3f}')
         print(' | '.join(row))
         for side in ('L', 'R'):
-            tail = rig.matrix_world @ rig.pose.bones[f'Toes.{side}'].tail
-            if tail.z < 0.0:
-                worst['penetration'] = min(worst['penetration'], tail.z)
+            for tip in toe_tips(rig, side):
+                if tip.z < 0.0:
+                    worst['penetration'] = min(worst['penetration'], tip.z)
     swing_clearance = []
     for frame in range(scene.frame_start, scene.frame_end + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
         for side in ('L', 'R'):
-            tail = rig.matrix_world @ rig.pose.bones[f'Toes.{side}'].tail
             # swing foot = clearly off the ground; record its clearance
-            if tail.z > 0.06:
-                swing_clearance.append(tail.z)
+            for tip in toe_tips(rig, side):
+                if tip.z > 0.06:
+                    swing_clearance.append(tip.z)
     print(f'\nmin z of any toe tip over the cycle: '
           f'{min(swing_clearance) if swing_clearance else 0.0:+.3f}')
     print(f'lowest penetration below ground: {worst["penetration"]:+.3f} m '

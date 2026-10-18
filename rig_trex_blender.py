@@ -56,8 +56,17 @@ for _side, _x in [('L',1.0), ('R',-1.0)]:
         f'Knee.{_side}':     (3.45 * _x,  9.80,  2.30),
         f'Hock.{_side}':     (3.00 * _x,  3.75, -2.50),
         f'Ankle.{_side}':    (3.25 * _x,  1.80, -2.70),
-        f'Toe.{_side}':      (3.65 * _x,  0.55,  2.40),
-        f'ToeTip.{_side}':   (3.70 * _x,  0.42,  3.24),
+        f'Ball.{_side}':     (3.55 * _x,  0.50,  1.10),
+        # Three toes per foot, measured on the source geometry: the inner
+        # (medial) toe is the longest, the outer one is short and set back.
+        # Each toe gets its own bone so no claw has to shear between the
+        # foot and a shared "Toes" bone.
+        f'Toe1.{_side}':     (1.05 * _x,  0.40,  1.40),
+        f'Toe1Tip.{_side}':  (1.05 * _x,  0.03,  3.23),
+        f'Toe2.{_side}':     (3.05 * _x,  0.40,  1.05),
+        f'Toe2Tip.{_side}':  (3.39 * _x,  0.02,  2.83),
+        f'Toe3.{_side}':     (5.05 * _x,  0.40,  0.80),
+        f'Toe3Tip.{_side}':  (5.69 * _x,  0.02,  2.27),
         f'Shoulder.{_side}':(3.30 * _x, 18.40,  9.65),
         f'Elbow.{_side}':   (4.05 * _x, 14.65, 10.15),
         f'Wrist.{_side}':   (4.35 * _x, 11.70, 10.90),
@@ -85,8 +94,10 @@ for side in ('L','R'):
         (f'Thigh.{side}',   'Pelvis',             f'Hip.{side}',   f'Knee.{side}', True),
         (f'Shin.{side}',    f'Thigh.{side}',      f'Knee.{side}',  f'Hock.{side}', True),
         (f'Tarsus.{side}',  f'Shin.{side}',       f'Hock.{side}',  f'Ankle.{side}',True),
-        (f'Foot.{side}',    f'Tarsus.{side}',     f'Ankle.{side}', f'Toe.{side}',  True),
-        (f'Toes.{side}',    f'Foot.{side}',       f'Toe.{side}',   f'ToeTip.{side}', True),
+        (f'Foot.{side}',    f'Tarsus.{side}',     f'Ankle.{side}', f'Ball.{side}', True),
+        (f'Toe1.{side}',    f'Foot.{side}',       f'Toe1.{side}',  f'Toe1Tip.{side}', True),
+        (f'Toe2.{side}',    f'Foot.{side}',       f'Toe2.{side}',  f'Toe2Tip.{side}', True),
+        (f'Toe3.{side}',    f'Foot.{side}',       f'Toe3.{side}',  f'Toe3Tip.{side}', True),
         (f'UpperArm.{side}', 'Chest',            f'Shoulder.{side}',f'Elbow.{side}',True),
         (f'ForeArm.{side}', f'UpperArm.{side}',  f'Elbow.{side}', f'Wrist.{side}',True),
         (f'Hand.{side}',    f'ForeArm.{side}',   f'Wrist.{side}', f'HandTip.{side}',True),
@@ -135,10 +146,42 @@ def limb_bands(y, z, side, is_arm=False):
     shin = (1.0-thigh)*smoothstep(3.0,4.8,y)
     tarsus = (1.0-thigh-shin)*smoothstep(1.3,2.65,y)
     foot = max(0.0,1.0-thigh-shin-tarsus)
-    toes = foot * smoothstep(0.75, 2.6,z) * (1.0-smoothstep(0.5,1.45,y))*0.94
     return {f'Thigh.{side}':thigh, f'Shin.{side}':shin,
-            f'Tarsus.{side}':tarsus, f'Foot.{side}':foot-toes,
-            f'Toes.{side}':toes}
+            f'Tarsus.{side}':tarsus, f'Foot.{side}':foot}
+
+
+# Toe lanes: (|x| centre, knuckle z) per toe, measured on the source mesh.
+TOE_LANES = ((1.05, 1.40), (3.05, 1.05), (5.05, 0.80))
+
+
+def split_foot_toes(weights, x, y, z, side):
+    """Move the forward part of the Foot weight onto the matching toe bone.
+
+    Each toe owns the mesh inside its lateral lane once the geometry passes
+    that toe's knuckle, so every claw follows its own bone instead of shearing
+    between the foot and a single shared Toes bone.
+    """
+    foot = weights.pop(f'Foot.{side}', 0.0)
+    lane = [max(0.0, 1.0 - abs(abs(x) - centre) / 1.55)
+            for centre, _ in TOE_LANES]
+    lane_total = sum(lane)
+    height = 1.0 - smoothstep(2.4, 3.6, y)
+    if foot <= 1e-6:
+        return
+    if lane_total <= 1e-6 or height <= 1e-6:
+        weights[f'Foot.{side}'] = foot
+        return
+    moved = 0.0
+    for number, ((centre, knuckle), share) in enumerate(
+            zip(TOE_LANES, lane), start=1):
+        along = smoothstep(knuckle, knuckle + 0.85, z)
+        amount = foot * height * along * (share / lane_total) * 0.95
+        if amount <= 1e-7:
+            continue
+        name = f'Toe{number}.{side}'
+        weights[name] = weights.get(name, 0.0) + amount
+        moved += amount
+    weights[f'Foot.{side}'] = foot - moved
 
 
 def vertex_weights(src):
@@ -152,6 +195,13 @@ def vertex_weights(src):
                 * (1.0-smoothstep(10.9,16.2,y))
                 * smoothstep(-9.8,-7.0,z)
                 * (1.0-smoothstep(4.2,6.4,z)))
+    # The foot is much wider than the leg: the inner toes sit almost on the
+    # body centre line, so they need their own gate or their claws end up
+    # weighted to the spine. Only geometry under the body can pass this one.
+    foot_gate = (smoothstep(0.20,0.60,ax)
+                 * (1.0-smoothstep(2.4,3.6,y))
+                 * smoothstep(-2.2,-0.4,z))
+    leg_gate = max(leg_gate, foot_gate)
     arm_gate = (smoothstep(1.7,3.4,ax)
                 * smoothstep(8.0,9.5,z)
                 * (1.0-smoothstep(13.4,15.2,z))
@@ -169,6 +219,8 @@ def vertex_weights(src):
 
     mix(limb_bands(y,z,side),leg_gate)
     mix(limb_bands(y,z,side,True),arm_gate)
+
+    split_foot_toes(out, x, y, z, side)
 
     # Keep jaw unweighted by default: source OBJ doesn't contain a confirmed
     # separate lower-jaw topology. Better immobile than tear the muzzle apart.

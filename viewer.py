@@ -30,7 +30,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 DEFAULT_GLB = ROOT / 'output' / 'trex_blender_rig.glb'
-CHECK_JOINTS = ('Root_CTRL', 'Pelvis', 'Head', 'Tail_End', 'Toes.L', 'Toes.R')
+CHECK_JOINTS = ('Root_CTRL', 'Pelvis', 'Head', 'Tail_End',
+                'Toe1.L', 'Toe2.L', 'Toe3.L', 'Toe1.R', 'Toe2.R', 'Toe3.R')
+EXPECTED_JOINT_COUNT = 32
 EXPECTED_DURATION = 40 / 30  # 40-frame cycle at 30 fps
 
 
@@ -51,7 +53,8 @@ def run_check(path):
 
     checks = [
         ('7 triangle primitives', primitive_count == 7),
-        ('28 skeleton joints', joint_count == 28),
+        (f'{EXPECTED_JOINT_COUNT} skeleton joints',
+         joint_count == EXPECTED_JOINT_COUNT),
         ('6 texture images', image_count == 6),
         ('animation "Walk" present',
          'Walk' in scene.animation_names),

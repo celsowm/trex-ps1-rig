@@ -70,8 +70,8 @@ def main():
     checks = [
         ('GLB has mesh data', len(meshes) == 1 and primitives == 7),
         ('one skin', len(skins) == 1),
-        ('28 skeleton joints (27 deform + Root_CTRL)',
-         bool(skins) and len(skins[0].get('joints', [])) == 28),
+        ('32 skeleton joints (31 deform + Root_CTRL)',
+         bool(skins) and len(skins[0].get('joints', [])) == 32),
         ('6 texture images', len(images) == 6),
         ('animation "Walk" present', any(a.get('name') == 'Walk' for a in animations)),
         (f'duration ~{expected_duration:.2f}s (40f @ 30fps)',

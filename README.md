@@ -7,8 +7,9 @@ editable Blender rig and a reconstructed walk-in-place animation:
 - **1:1 source**: the original `dino.obj` (2332 vertices / 2724 triangles),
   its UVs, its material list and the six VRAM-page PNGs are used untouched.
   No retopology, no texture edits, no re-exported geometry.
-- **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 28 bones,
-  27 deform) with vertex groups and normalized 4-influence weights.
+- **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 32 bones,
+  31 deform) with vertex groups and normalized 4-influence weights. Each foot
+  has three toe bones (`Toe1/2/3.L/.R`), so every claw follows its own joint.
 - **Walk cycle**: a 40-frame / 30 fps in-place loop (`Walk`, 1.33 s) solved
   with analytic 2-link IK so the claw tips follow an editable foot-target
   table. Feet plant flat, sweep back during stance and clear the ground
@@ -95,7 +96,7 @@ The renderer is our own OpenGL 3.3 code: GLB accessors decoded in `viewer/glb.py
 scene graph/animation/skinning in `viewer/scene.py`, and the shaders, buffers,
 textures (nearest filtering for the PS1 pixel look), grid, skeleton and
 screenshot readback in `viewer/renderer.py`. `viewer.py --check` validates the
-structure the viewer depends on (7 primitives, 28 joints, 6 textures, `Walk`
+structure the viewer depends on (7 primitives, 32 joints, 6 textures, `Walk`
 at 40 frames / 30 fps) and prints joint world positions at frames 0/10/20/30;
 those match the Blender rig's pose bones to the millimetre.
 
@@ -104,7 +105,7 @@ those match the Blender rig's pose bones to the millimetre.
 | File | What it is |
 |---|---|
 | `output/trex_editable.blend` | Mesh + packed textures, armature, vertex groups, `Walk` action, frames 0–40 @ 30 fps |
-| `output/trex_blender_rig.glb` | Binary glTF: 1 skin (28 joints), 7 primitives, 6 packed textures, `Walk` clip (1.33 s, loops in place) |
+| `output/trex_blender_rig.glb` | Binary glTF: 1 skin (32 joints), 7 primitives, 6 packed textures, `Walk` clip (1.33 s, loops in place) |
 | `diagnostics/rig/` | Test-pose renders (knee/hock/ankle/head/tail/arm extremes) |
 | `diagnostics/walk/` | Walk contact sheet, 3/4 still and front still |
 
@@ -148,7 +149,8 @@ python3 verify_glb.py
 1. Select `TREX_EDITABLE_ARMATURE` in the Outliner. Numpad 3 for the right
    side view, Numpad 5 to toggle orthographic.
 2. **Edit Mode** (`Tab`): move bone heads/tails. Leg chain: `Thigh` →
-   `Shin` → `Tarsus` → `Foot` → `Toes`. The knee sits forward, the hock
+   `Shin` → `Tarsus` → `Foot` → `Toe1/Toe2/Toe3` (inner, middle, outer toe,
+   each with its own claw tip). The knee sits forward, the hock
    backward, the ankle low. The same points live in `JOINTS` in
    `rig_trex_blender.py`; change them there and rerun, or move them in the
    GUI and re-solve the walk afterwards.
