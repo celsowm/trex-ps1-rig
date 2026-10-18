@@ -201,7 +201,25 @@ def vertex_weights(src):
     foot_gate = (smoothstep(0.20,0.60,ax)
                  * (1.0-smoothstep(2.4,3.6,y))
                  * smoothstep(-2.2,-0.4,z))
-    leg_gate = max(leg_gate, foot_gate)
+    # The legs are thick: their medial wall sits at |x|~0.6-1.4 and no body
+    # geometry exists between them below y~10, so underneath the hips that
+    # wall belongs to its own leg. Without this the wall kept spine weights
+    # and a swinging leg sheared through its own width (2.4x stretch at the
+    # heel). It fades out towards the hips so the leg/body junction stays put.
+    wall_gate = ((1.0-smoothstep(4.6,10.0,y))
+                 * smoothstep(0.30,0.65,ax)
+                 * smoothstep(-9.8,-7.0,z)
+                 * (1.0-smoothstep(4.2,6.4,z)))
+    # The underbelly itself stays with the body, but the hip surface wrapping
+    # around it has to lean into the thigh: the groin sheet only has vertices
+    # near |x|~1.5 and |x|~2.4 while the bridge between them crosses three
+    # units, so a hard pelvis/thigh jump there tore on every step.
+    hip_gate = (smoothstep(0.6,2.4,ax)
+                * smoothstep(9.0,10.0,y)
+                * (1.0-smoothstep(10.8,12.4,y))
+                * smoothstep(-5.5,-3.5,z)
+                * (1.0-smoothstep(0.5,2.5,z)))
+    leg_gate = max(leg_gate, foot_gate, wall_gate, hip_gate)
     arm_gate = (smoothstep(1.7,3.4,ax)
                 * smoothstep(8.0,9.5,z)
                 * (1.0-smoothstep(13.4,15.2,z))
