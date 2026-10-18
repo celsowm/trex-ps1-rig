@@ -20,7 +20,7 @@ python3 test_rig_math.py
 echo "== 2/5 build rig"
 "$BLENDER" --background --factory-startup --python rig_trex_blender.py -- --clean-scene
 
-echo "== 3/5 animate walk + export GLB + preview sheet"
+echo "== 3/5 animate walk + roar, export GLB, render preview sheets"
 "$BLENDER" --background --factory-startup --python animate_trex.py -- --export-glb --preview
 
 echo "== 4/5 verify GLB"
@@ -36,6 +36,7 @@ fi
 echo
 echo "ALL DONE."
 echo "  output/trex_editable.blend  -> open, select armature, Pose Mode, Space to play"
-echo "  output/trex_blender_rig.glb -> 'Walk' clip, loops at 1.33 s"
-echo "  python3 viewer.py           -> native desktop viewer: mesh + rig + walk"
-echo "  diagnostics/walk/walk_contact_sheet.png -> rendered preview"
+echo "  output/trex_blender_rig.glb -> 'Walk' (loops) + 'Roar' (one-shot), 1.33 s each"
+echo "  python3 viewer.py           -> native desktop viewer: mesh + rig + walk + roar (keys 1/2)"
+echo "  diagnostics/walk/walk_contact_sheet.png -> rendered walk preview"
+echo "  diagnostics/walk/roar_contact_sheet.png -> rendered roar preview"

@@ -8,11 +8,13 @@ base=Path(__file__).resolve().parent
 script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
+           'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
            'vertex_weights','parse_obj']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
-          and getattr(node.targets[0],'id','')=='TOE_LANES')]
+          and getattr(node.targets[0],'id','') in
+          ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND'))]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -35,6 +37,29 @@ print(f'PASS: {len(vertices)} original vertices, {len(faces)} triangles, {len(co
 print('Right/left leg vertex counts:')
 for name in ('Thigh','Shin','Tarsus','Foot','Toe1','Toe2','Toe3'):
     print(f'  {name}: left {counts[name+".L"]}, right {counts[name+".R"]}')
+
+# Lower jaw: the mouth is a topology split in the source mesh, so the jaw
+# islands must be found, take nothing but Jaw/JawTip, and the skull side of
+# the mouth line must stay off the jaw bones. The throat skin under the jaw
+# blends into the jaw toward the chin so an open mouth shows no gap.
+jaw,throat=env['jaw_vertex_sets'](vertices,faces)
+assert len(jaw)==241, f'Jaw island set changed: {len(jaw)} vertices (expected 241)'
+assert len(throat)==30, f'Throat island changed: {len(throat)} vertices (expected 30)'
+for i in jaw:
+    w=env['jaw_weights'](vertices[i][2])
+    assert set(w)<={'Jaw','JawTip'}, f'Jaw vertex {i} leaks onto {sorted(w)}'
+    assert abs(sum(w.values())-1)<1e-5
+upper=[]
+for island in env['mesh_islands'](len(vertices),faces):
+    ys=[vertices[i][1] for i in island]
+    zs=[vertices[i][2] for i in island]
+    if min(zs)>=15.5 and min(ys)>21.2:
+        upper.extend(island)
+assert upper and not (set(upper)&jaw), 'Upper mouth pieces must stay off the jaw bones'
+front=max(throat,key=lambda i: vertices[i][2])
+assert env['smoothstep'](18.5,23.0,vertices[front][2])>0.9, 'Throat front must follow the jaw'
+print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it), '
+      f'throat {len(throat)} vertices blend toward the chin')
 
 # Walk-cycle sanity without Blender: the foot-target table must stay above
 # ground, start/end identical for the loop, and cover one full stride.

@@ -32,7 +32,7 @@ WINDOW_HEIGHT = 800
 
 HELP_LINES = (
     'Space play/pause   Left/Right scrub   M mesh   R rig   W wireframe   T bones on top',
-    'G grid   L lighting   F reset view   P panel   Mouse: drag orbit, shift/right-drag pan, scroll/pinch zoom',
+    'G grid   L lighting   F reset view   P panel   1 Walk / 2 Roar   Mouse: drag orbit, shift/right-drag pan, scroll/pinch zoom',
 )
 
 DEFAULT_YAW = 0.95
@@ -159,8 +159,7 @@ class ControlPanel:
         y = height - 20 * scale
         label('T-REX VIEWER', 13, TITLE_COLOR, y, weight='bold')
         y -= 19 * scale
-        clip = (window.scene.animation_names[0]
-                if window.scene.animation_names else 'clip')
+        clip = window.scene.clip_name or 'clip'
         label(f'PS1 rig - {clip}', 9, SUBTITLE_COLOR, y)
         y -= 24 * scale
 
@@ -185,6 +184,17 @@ class ControlPanel:
                                 y=y - track_height - 5 * scale,
                                 anchor_y='top', color=STATE_COLOR)
         y = y - track_height - 24 * scale
+
+        y = header('CLIP', y)
+        count = max(len(window.scene.clips), 1)
+        clip_w = (inner - gap * (count - 1)) / count
+        for index, info in enumerate(window.scene.clips):
+            button(info['name'] or f'Clip {index + 1}', y,
+                   partial(window.set_clip, index),
+                   is_active=partial(window.is_clip, index),
+                   hint=str(index + 1), height=26 * scale, width=clip_w,
+                   x_pos=x + index * (clip_w + gap), advance=False)
+        y = y - 26 * scale - gap
 
         y = header('DISPLAY', y)
         for flag, name, hint in (
@@ -301,6 +311,16 @@ class ViewerWindow(pyglet.window.Window):
         self.playing = not self.playing
         self._refresh_status()
 
+    def set_clip(self, index):
+        self.scene.set_clip(index)
+        if self.scene.duration > 0.0:
+            self.time %= self.scene.duration
+        self.set_caption(f'T-Rex native viewer | PS1 rig - {self.scene.clip_name}')
+        self._refresh_status()
+
+    def is_clip(self, index):
+        return self.scene.clip_index == index
+
     def step_frame(self, direction):
         self.playing = False
         if self.scene.duration > 0.0:
@@ -331,7 +351,7 @@ class ViewerWindow(pyglet.window.Window):
         self.status, self.hud = build_hud(self.width, self.height, self.scale)
 
     def _refresh_status(self):
-        clip = self.scene.animation_names[0] if self.scene.animation_names else 'no clip'
+        clip = self.scene.clip_name or 'no clip'
         state = 'playing' if self.playing else 'paused'
         switches = ' '.join(
             f'{name}={"on" if value else "off"}'
@@ -424,6 +444,10 @@ class ViewerWindow(pyglet.window.Window):
             self.reset_view()
         elif symbol == key.P:
             self.panel.visible = not self.panel.visible
+        elif symbol in (key._1, key.NUM_1):
+            self.set_clip(0)
+        elif symbol in (key._2, key.NUM_2):
+            self.set_clip(1)
         elif symbol in (key.LEFT, key.RIGHT):
             self.step_frame(1 if symbol == key.RIGHT else -1)
         self._refresh_status()
@@ -523,7 +547,7 @@ def _resample(pixels, width, height):
     return pixels[ys][:, xs]
 
 
-def screenshot(glb_path, out_path, time, width, height):
+def screenshot(glb_path, out_path, time, width, height, clip=None):
     """Render one frame plus the HUD and save a PNG of exactly WxH pixels."""
     config = pyglet.gl.Config(double_buffer=True, major_version=3,
                               minor_version=3, forward_compatible=True)
@@ -533,6 +557,8 @@ def screenshot(glb_path, out_path, time, width, height):
     # On high-DPI screens the drawable is larger than the requested WxH.
     fb_width, fb_height = window.get_framebuffer_size()
     scene = TrexScene(glb_path)
+    if clip:
+        scene.set_clip(clip)
     renderer = Renderer(scene)
     center, radius = scene.bounds_center_radius()
     camera = OrbitCamera(center, radius * DEFAULT_FRAME,
@@ -543,7 +569,7 @@ def screenshot(glb_path, out_path, time, width, height):
                   pixel_scale=window.scale)
 
     status, hud = build_hud(fb_width, fb_height, window.scale)
-    clip = scene.animation_names[0] if scene.animation_names else 'no clip'
+    clip = scene.clip_name or 'no clip'
     status.text = (f'T-Rex native viewer | {clip} {scene.duration:.2f}s '
                    f'paused t={time:.2f}s | ' + ' '.join(
                        f'{name}=on' for name in ('mesh', 'rig', 'grid'))

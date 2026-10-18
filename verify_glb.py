@@ -67,15 +67,23 @@ def main():
               f'samplers={len(samplers)} duration={duration}s')
 
     expected_duration = 40 / 30.0  # CYCLE / FPS from animate_trex.py
+    joint_count = len(skins[0].get('joints', [])) if skins else 0
     checks = [
         ('GLB has mesh data', len(meshes) == 1 and primitives == 7),
         ('one skin', len(skins) == 1),
-        ('32 skeleton joints (31 deform + Root_CTRL)',
-         bool(skins) and len(skins[0].get('joints', [])) == 32),
+        ('33 skeleton joints (32 deform + Root_CTRL)', joint_count == 33),
         ('6 texture images', len(images) == 6),
-        ('animation "Walk" present', any(a.get('name') == 'Walk' for a in animations)),
-        (f'duration ~{expected_duration:.2f}s (40f @ 30fps)',
-         any(d is not None and abs(d - expected_duration) < 0.1 for d in durations)),
+        ('animation "Walk" present',
+         any(a.get('name') == 'Walk' for a in animations)),
+        ('animation "Roar" present',
+         any(a.get('name') == 'Roar' for a in animations)),
+        (f'both clips ~{expected_duration:.2f}s (40f @ 30fps)',
+         len(animations) == 2
+         and all(d is not None and abs(d - expected_duration) < 0.1
+                 for d in durations)),
+        (f'every clip samples the whole skeleton ({joint_count * 3} channels)',
+         all(len(a.get('channels', [])) == joint_count * 3
+             for a in animations)),
     ]
     failed = False
     for label, ok in checks:

@@ -170,12 +170,25 @@ class TrexScene:
         animations = self.gltf.get('animations', [])
         self.animation_names = [animation.get('name', '')
                                 for animation in animations]
-        self.channels = []
-        self.duration = 0.0
-        if animations:
-            self._load_clip(animations[0])
+        self.clips = []
+        for animation in animations:
+            channels, duration = self._parse_clip(animation)
+            self.clips.append({'name': animation.get('name', ''),
+                               'channels': channels,
+                               'duration': duration})
+        if not self.clips:
+            self.clips = [{'name': '', 'channels': [], 'duration': 0.0}]
+        # Present the Walk first (Blender exports the stashed action first):
+        # keys 1/2 and the panel read the same order the viewer displays.
+        order = sorted(range(len(self.clips)),
+                       key=lambda i: (self.clips[i]['name'] != 'Walk', i))
+        self.clips = [self.clips[i] for i in order]
+        self.clip_index = 0
+        self._use_clip(0)
 
-    def _load_clip(self, animation):
+    def _parse_clip(self, animation):
+        channels = []
+        duration = 0.0
         for channel in animation.get('channels', []):
             sampler = animation['samplers'][channel['sampler']]
             target = channel['target']
@@ -185,15 +198,33 @@ class TrexScene:
             times = self.glb.accessor(sampler['input']).astype(np.float32)
             values = self.glb.accessor(sampler['output']).astype(np.float32)
             times = times.reshape(-1)
-            self.channels.append({
+            channels.append({
                 'node': int(target['node']),
                 'path': path,
                 'times': times,
                 'values': values,
             })
             if len(times):
-                self.duration = max(self.duration, float(times[-1]))
+                duration = max(duration, float(times[-1]))
+        return channels, duration
 
+    def _use_clip(self, index):
+        index = max(0, min(int(index), len(self.clips) - 1))
+        self.clip_index = index
+        clip = self.clips[index]
+        self.channels = clip['channels']
+        self.duration = clip['duration']
+
+    def set_clip(self, index):
+        """Switch the active animation clip by index or name."""
+        if isinstance(index, str):
+            names = [info['name'] for info in self.clips]
+            index = names.index(index)
+        self._use_clip(index)
+
+    @property
+    def clip_name(self):
+        return self.clips[self.clip_index]['name']
     def sample_local(self, time):
         """Per-node local TRS at ``time`` (LINEAR/nlerp sampling)."""
         translation = self.base_translation.copy()

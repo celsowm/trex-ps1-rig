@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""T-Rex native viewer: mesh + rig + Walk playback from the exported GLB.
+"""T-Rex native viewer: mesh + rig + Walk/Roar playback from the exported GLB.
 
 Our own desktop viewer (no Blender, no browser): a GLB parser, a skinning
 renderer and a pyglet window, all written in this repository.
 
     python3 viewer.py                     # open the interactive window
     python3 viewer.py --check             # headless validation, no window
-    python3 viewer.py --screenshot out.png --time 0.667
+    python3 viewer.py --screenshot out.png --time 0.667 [--clip Roar]
                                           # render one frame to a PNG
 
 Window controls:
     Space play/pause     Left/Right scrub one frame
     M mesh   R rig   W wireframe   T bones on top   G grid
-    L cycle lighting     F reset view
+    L cycle lighting     F reset view     1 Walk   2 Roar
     Mouse: drag to orbit, shift-drag (or right-drag) to pan, wheel to zoom
 
 Requirements (see viewer/requirements.txt):
@@ -32,7 +32,7 @@ if str(ROOT) not in sys.path:
 DEFAULT_GLB = ROOT / 'output' / 'trex_blender_rig.glb'
 CHECK_JOINTS = ('Root_CTRL', 'Pelvis', 'Head', 'Tail_End',
                 'Toe1.L', 'Toe2.L', 'Toe3.L', 'Toe1.R', 'Toe2.R', 'Toe3.R')
-EXPECTED_JOINT_COUNT = 32
+EXPECTED_JOINT_COUNT = 33
 EXPECTED_DURATION = 40 / 30  # 40-frame cycle at 30 fps
 
 
@@ -48,18 +48,39 @@ def run_check(path):
     print(f'  nodes={scene.node_count} primitives={primitive_count} '
           f'joints={joint_count} images={image_count} '
           f'materials={len(scene.materials)}')
-    print(f'  animation "Walk": duration={scene.duration:.4f}s '
-          f'channels={len(scene.channels)}')
+    for index, info in enumerate(scene.clips):
+        print(f'  clip {index + 1}/{len(scene.clips)} "{info["name"]}": '
+              f'duration={info["duration"]:.4f}s '
+              f'channels={len(info["channels"])}')
+
+    # The Roar must actually open the mouth: skin the chin tip through the
+    # JawTip joint and compare it with the same point kept rigid on the Head
+    # (both at the roar's open hold, so the head lift cancels out).
+    import numpy as np
+
+    jaw_index = scene.joint_index('JawTip')
+    head_index = scene.joint_index('Head')
+
+    def skin_y(clip, time, joint):
+        scene.set_clip(clip)
+        skin = scene.skin_matrices(time)
+        point = np.array([0.0, 2.070, 2.460, 1.0], np.float32)  # chin (rest)
+        return float((skin[joint] @ point)[1])
+
+    jaw_drop = skin_y('Roar', 0.6, head_index) - skin_y('Roar', 0.6, jaw_index)
+    scene.set_clip(0)
 
     checks = [
         ('7 triangle primitives', primitive_count == 7),
         (f'{EXPECTED_JOINT_COUNT} skeleton joints',
          joint_count == EXPECTED_JOINT_COUNT),
         ('6 texture images', image_count == 6),
-        ('animation "Walk" present',
-         'Walk' in scene.animation_names),
+        ('animation "Walk" present', 'Walk' in scene.animation_names),
+        ('animation "Roar" present', 'Roar' in scene.animation_names),
         (f'duration ~{EXPECTED_DURATION:.3f}s (40 frames @ 30 fps)',
-         abs(scene.duration - EXPECTED_DURATION) < 0.05),
+         all(abs(info['duration'] - EXPECTED_DURATION) < 0.05
+             for info in scene.clips if info['channels'])),
+        (f'Roar opens the jaw (tip drops {jaw_drop:.3f} m)', jaw_drop > 0.15),
         ('every vertex is skinned',
          all(primitive['joints'] is not None and primitive['weights'] is not None
              for primitive in scene.primitives)),
@@ -100,6 +121,8 @@ def main(argv=None):
                         help='render one frame to PNG and exit')
     parser.add_argument('--time', type=float, default=0.0,
                         help='animation time for --screenshot, in seconds')
+    parser.add_argument('--clip', default=None,
+                        help='clip name for --screenshot (default: first clip)')
     parser.add_argument('--size', default='1600x1000',
                         help='window/screenshot size WxH (default: 1600x1000)')
     args = parser.parse_args(argv)
@@ -146,7 +169,7 @@ def main(argv=None):
         out_path = args.screenshot.expanduser().resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            screenshot(path, out_path, args.time, width, height)
+            screenshot(path, out_path, args.time, width, height, args.clip)
         except GlbError as error:
             print(f'viewer: cannot read {path}: {error}', file=sys.stderr)
             return 1

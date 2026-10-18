@@ -41,14 +41,19 @@ JOINTS = {
     'Chest':      ( 0.00, 20.25,  8.10),
     'Neck':       ( 0.00, 21.30, 13.15),
     'Head':       ( 0.00, 22.25, 17.40),
-    'Jaw':        ( 0.00, 20.35, 18.90),
+    # The mouth is a topological split in the source mesh: the lower jaw is a
+    # separate island set (hinge plates, lips, chin, snout cap). The hinge
+    # sits at the back-top of the hinge plates, the tip joint at the chin,
+    # so Jaw/JawTip can open the mouth without touching the skull.
+    'Jaw':        ( 0.00, 22.70, 16.60),
+    'JawMid':     ( 0.00, 21.15, 20.80),
     'Tail01':     ( 0.00, 17.00, -11.50),
     'Tail02':     ( 0.00, 17.40, -19.40),
     'Tail03':     ( 0.00, 16.80, -27.30),
     'Tail04':     ( 0.00, 16.35, -34.20),
     'TailTip':    ( 0.00, 15.95, -38.15),
     'HeadTip':    ( 0.00, 21.75,  24.25),
-    'JawTip':     ( 0.00, 20.20,  23.60),
+    'JawTip':     ( 0.00, 20.70,  24.60),
 }
 for _side, _x in [('L',1.0), ('R',-1.0)]:
     JOINTS.update({
@@ -81,7 +86,8 @@ BONE_DEF = [
     ('Chest',    'Spine',   'Chest','Neck',True),
     ('Neck',     'Chest',   'Neck','Head',True),
     ('Head',     'Neck',    'Head','HeadTip',True),
-    ('Jaw',      'Head',    'Jaw','JawTip',True),
+    ('Jaw',      'Head',    'Jaw','JawMid',True),
+    ('JawTip',   'Jaw',     'JawMid','JawTip',True),
     ('Tail_01',  'Pelvis',  'Pelvis','Tail01',True),
     ('Tail_02',  'Tail_01', 'Tail01','Tail02',True),
     ('Tail_03',  'Tail_02', 'Tail02','Tail03',True),
@@ -184,6 +190,73 @@ def split_foot_toes(weights, x, y, z, side):
     weights[f'Foot.{side}'] = foot - moved
 
 
+# Lower-jaw gates ---------------------------------------------------------
+# The mouth is a topological split in the source mesh: the lower jaw is a
+# handful of separate islands (hinge plates, lips, chin, lower snout cap).
+# Islands keep the split exact - no positional gate can separate the upper
+# lip from the lower one at |y| ~ 21.3 without leaking. Measured on the OBJ:
+# every jaw island stays in front of JAW_MIN_Z and dips below JAW_MAX_TOP,
+# while the throat skin is the piece that reaches back into the neck.
+JAW_MIN_Z = 15.5
+JAW_MAX_TOP = 21.2
+JAW_TIP_BAND = (21.5, 24.0)      # Jaw -> JawTip blend along the mouth
+THROAT_BAND = (18.5, 23.0)       # jaw share ramps in along the throat skin
+
+
+def mesh_islands(vertex_count, faces):
+    """Connected-vertex components of the source mesh (union-find)."""
+    parent = list(range(vertex_count))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for face in faces:
+        for i in range(len(face)):
+            a, b = find(face[i]), find(face[i - 1])
+            if a != b:
+                parent[a] = b
+    groups = defaultdict(list)
+    for index in range(vertex_count):
+        groups[find(index)].append(index)
+    return list(groups.values())
+
+
+def jaw_vertex_sets(vertices, faces):
+    """(jaw, throat) vertex indices: lower jaw islands and throat skin.
+
+    Jaw islands sit entirely in front of JAW_MIN_Z and dip below the mouth
+    line (JAW_MAX_TOP); the throat island stays under the jaw while reaching
+    back into the neck (min z < JAW_MIN_Z).
+    """
+    jaw = set()
+    throat = set()
+    for island in mesh_islands(len(vertices), faces):
+        ys = [vertices[i][1] for i in island]
+        zs = [vertices[i][2] for i in island]
+        if min(zs) >= JAW_MIN_Z and min(ys) <= JAW_MAX_TOP:
+            jaw.update(island)
+        elif max(ys) <= 20.6 and max(zs) >= 19.0 and min(zs) < JAW_MIN_Z:
+            throat.update(island)
+    return jaw, throat
+
+
+def jaw_weights(z):
+    """Jaw/JawTip split: hinge plates ride Jaw, the tip curls with JawTip."""
+    tip = smoothstep(*JAW_TIP_BAND, z)
+    return {'Jaw': 1.0 - tip, 'JawTip': tip}
+
+
+def blend_weights(base, extra, share):
+    """Linear blend between two normalized weight dicts (share of `extra`)."""
+    out = {name: value * (1.0 - share) for name, value in base.items()}
+    for name, value in extra.items():
+        out[name] = out.get(name, 0.0) + value * share
+    return {name: value for name, value in out.items() if value > 1e-7}
+
+
 def vertex_weights(src):
     x,y,z = src
     out = axial_weights(z)
@@ -240,9 +313,9 @@ def vertex_weights(src):
 
     split_foot_toes(out, x, y, z, side)
 
-    # Keep jaw unweighted by default: source OBJ doesn't contain a confirmed
-    # separate lower-jaw topology. Better immobile than tear the muzzle apart.
-    # Jaw bone is editable and can be painted manually once geometry is split.
+    # The lower jaw is a separate topology island set: bind() routes those
+    # vertices to Jaw/JawTip via jaw_vertex_sets(), so vertex_weights() only
+    # ever sees skull, throat (partially blended) and body vertices.
 
     # Retain strongest four influences and renormalize for glTF compatibility.
     selected = sorted(out.items(),key=lambda kv:kv[1],reverse=True)[:4]
@@ -339,7 +412,7 @@ def build_mesh(obj_path, parent_collection):
     obj['source']=str(obj_path)
     obj['source_vertices']=len(vertices)
     obj['source_triangles']=len(faces)
-    return obj,vertices
+    return obj,vertices,faces
 
 
 def build_armature(parent_collection):
@@ -370,13 +443,23 @@ def build_armature(parent_collection):
     return obj
 
 
-def bind(mesh_obj,src_vertices,rig_obj):
+def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset()):
     deform_names=[name for name,_,_,_,deform in BONE_DEF if deform]
     vgroups={name:mesh_obj.vertex_groups.new(name=name) for name in deform_names}
     stats=defaultdict(int)
     total_bad=0
     for i,v in enumerate(src_vertices):
-        weights=vertex_weights(v)
+        if i in jaw:
+            # Lower-jaw islands are fully jaw-driven; the mouth split is real
+            # topology, so nothing else may pull on them.
+            weights=jaw_weights(v[2])
+        elif i in throat:
+            # Under-jaw skin: anchored to the neck at the back, following the
+            # jaw toward the chin so an open mouth never shows through.
+            weights=blend_weights(vertex_weights(v),jaw_weights(v[2]),
+                                  smoothstep(*THROAT_BAND,v[2]))
+        else:
+            weights=vertex_weights(v)
         if abs(sum(weights.values())-1.0)>1e-5:
             total_bad+=1
         for name,w in weights.items():
@@ -440,9 +523,12 @@ def main():
     out.mkdir(parents=True,exist_ok=True)
     coll=bpy.data.collections.new(COLLECTION_NAME)
     bpy.context.scene.collection.children.link(coll)
-    mesh,verts=build_mesh(obj_path,coll)
+    mesh,verts,faces=build_mesh(obj_path,coll)
     rig=build_armature(coll)
-    stats=bind(mesh,verts,rig)
+    jaw,throat=jaw_vertex_sets(verts,faces)
+    print(f'JAW: lower-jaw islands cover {len(jaw)} vertices, '
+          f'throat skin blends over {len(throat)}')
+    stats=bind(mesh,verts,rig,jaw,throat)
     set_viewport(mesh,rig)
     bpy.context.scene.frame_set(1)
     # Keep the render engine supplied by the installed Blender version.

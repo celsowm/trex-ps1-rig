@@ -4,10 +4,11 @@
     blender -b --factory-startup --python animate_trex.py -- \
         [--blend output/trex_editable.blend] [--export-glb] [--preview] [--no-save]
 
-Loads the rigged blend, builds a looping 40-frame "Walk" action at 30 fps
-(left foot mid-stance at frame 0, right foot offset by half a cycle, frame 40
-duplicates frame 0), saves the blend, exports a GLB with the animation, and
-optionally renders a contact sheet into diagnostics/walk/.
+Loads the rigged blend, builds a looping 40-frame "Walk" action (left foot
+mid-stance at frame 0, right foot offset by half a cycle, frame 40
+duplicates frame 0) plus a one-shot 40-frame "Roar" clip (head up, mouth
+open with a growl, snap shut) at 30 fps, saves the blend, exports a GLB with
+both animations, and optionally renders a contact sheet into diagnostics/walk/.
 
 LEG SOLUTION: each leg is solved with exact analytic 2-link IK (thigh + shin)
 so the claw tips follow the FOOT_TARGETS table in world space; the tarsus is
@@ -96,6 +97,21 @@ ARM_SWING = 6.0           # vestigial arms, contralateral with the legs
 ARM_FORE = 4.0
 TOE_CURL_SWING = 8.0      # claws lifted while airborne
 TOE_DIP_LAND = 4.0        # claws reach slightly on touchdown
+
+# ----------------------------------------------------------------- jaw knobs
+JAW_BREATH = 3.5          # mouth opening (deg) at the top of each step
+JAW_BREATH_TIP = 0.35     # share of that bending the jaw tip
+ROAR_OPEN = 24.0          # jaw opening at the peak of the Roar clip
+ROAR_PULSE = 1.6          # growl pulse riding on the open jaw
+ROAR_TIP = 0.30           # extra tip curl (share of the opening)
+ROAR_NECK = -7.0          # neck pitch up during the roar
+ROAR_HEAD = -5.0
+ROAR_SPINE = -1.5
+ROAR_CHEST = -1.0
+ROAR_TAIL = 1.6
+
+# Roar frames rendered into diagnostics/walk/ (open, hold, close, settle).
+ROAR_PREVIEW_FRAMES = (0, 5, 10, 18, 26, 32, 36, 40)
 
 TAU = 2.0 * math.pi
 
@@ -213,6 +229,12 @@ def body_pose(t):
         ('Z', -HEAD_YAW * math.sin(TAU * (t - 0.62))),
     ]
 
+    # A little breathing through the mouth, twice per stride: the jaw rides
+    # the same 2x bounce as the spine so it reads as panting, not chomping.
+    breath = 0.5 - 0.5 * math.cos(2.0 * TAU * (t - 0.10))
+    rots['Jaw'] = [('X', JAW_BREATH * breath)]
+    rots['JawTip'] = [('X', JAW_BREATH * JAW_BREATH_TIP * breath)]
+
     tail_names = ['Tail_01', 'Tail_02', 'Tail_03', 'Tail_04', 'Tail_End']
     for i, (name, amp) in enumerate(zip(tail_names, TAIL_YAW)):
         lag = i * TAIL_LAG
@@ -223,9 +245,50 @@ def body_pose(t):
     return rots, locs
 
 
-def apply_pose(t):
+def smoothstep(a, b, x):
+    """Local ramp, same shape as rig_trex_blender.smoothstep."""
+    u = min(1.0, max(0.0, (x - a) / (b - a)))
+    return u * u * (3.0 - 2.0 * u)
+
+
+def roar_pose(t):
+    """Stand-and-roar layers: head up, chest out, mouth open with a growl.
+
+    Frames 0 and 40 are both the rest pose (one-shot climb-hold-release), and
+    every bone the Walk keys is keyed here too, so the two clips can be
+    swapped at any time without dragging a stale walk pose along.
+    """
+    rots = {}
+    locs = {}
+    locs['Root_CTRL'] = (0.0, 0.0, 0.0)
+
+    open_amount = smoothstep(0.01, 0.14, t) * (1.0 - smoothstep(0.78, 0.95, t))
+    lift = smoothstep(0.0, 0.22, t) * (1.0 - smoothstep(0.80, 1.0, t))
+    pulse = ROAR_PULSE * open_amount * math.sin(TAU * 1.25 * t)
+    chomp = -1.2 * bell(t, 0.955, 0.022)   # clench right after the snap shut
+    jaw = ROAR_OPEN * open_amount + pulse + chomp
+    rots['Jaw'] = [('X', jaw)]
+    rots['JawTip'] = [('X', ROAR_TIP * jaw)]
+
+    rots['Pelvis'] = []
+    rots['Spine'] = [('X', ROAR_SPINE * lift)]
+    rots['Chest'] = [('X', ROAR_CHEST * lift)]
+    rots['Neck'] = [('X', ROAR_NECK * lift)]
+    rots['Head'] = [('X', ROAR_HEAD * lift)]
+
+    tail_names = ['Tail_01', 'Tail_02', 'Tail_03', 'Tail_04', 'Tail_End']
+    for i, name in enumerate(tail_names):
+        rots[name] = [('X', ROAR_TAIL * (0.6 + 0.1 * i) * lift)]
+    for side in ('L', 'R'):
+        rots[f'UpperArm.{side}'] = []
+        rots[f'ForeArm.{side}'] = []
+        rots[f'Hand.{side}'] = []
+    return rots, locs
+
+
+def apply_pose(t, pose_fn=None, solve_legs=True):
     """Apply body first, then solve both legs against the evaluated hips."""
-    rots, locs = body_pose(t)
+    rots, locs = (pose_fn or body_pose)(t)
     for name, rotations in rots.items():
         pb = rig.pose.bones[name]
         pb.rotation_mode = 'QUATERNION'
@@ -236,13 +299,25 @@ def apply_pose(t):
         pb.rotation_mode = 'QUATERNION'
         pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
 
-    bpy.context.view_layer.update()   # hips must reflect the body pose
-    for side in ('L', 'R'):
-        for name, rotations in leg_rotation_list(t, side).items():
-            pb = rig.pose.bones[name]
-            pb.rotation_mode = 'QUATERNION'
-            pb.rotation_quaternion = lt.wq(pb, rotations)
-            rots[name] = rotations
+    if solve_legs:
+        bpy.context.view_layer.update()   # hips must reflect the body pose
+        for side in ('L', 'R'):
+            for name, rotations in leg_rotation_list(t, side).items():
+                pb = rig.pose.bones[name]
+                pb.rotation_mode = 'QUATERNION'
+                pb.rotation_quaternion = lt.wq(pb, rotations)
+                rots[name] = rotations
+    else:
+        # Key the whole leg chain at rest so a clip swap cannot inherit the
+        # walk pose (Blender holds unkeyed channels; the viewer resets them).
+        for side in ('L', 'R'):
+            for seg in ('Thigh', 'Shin', 'Tarsus', 'Foot',
+                        'Toe1', 'Toe2', 'Toe3'):
+                name = f'{seg}.{side}'
+                pb = rig.pose.bones[name]
+                pb.rotation_mode = 'QUATERNION'
+                pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                rots[name] = []
     return rots, locs
 
 
@@ -303,6 +378,60 @@ def build_action(rig):
     return action
 
 
+def build_roar_action(rig):
+    """One-shot Roar: snap the mouth open, growl, snap shut, settle."""
+    rig.animation_data_create()
+    old = bpy.data.actions.get('Roar')
+    if old is not None:
+        bpy.data.actions.remove(old)
+    action = bpy.data.actions.new('Roar')
+    action.use_fake_user = True
+    rig.animation_data.action = action
+
+    keyed_bones = set()
+    # Helper keys beyond both ends hold the rest pose, so the clip loops and
+    # any clip swap starts/ends from the same neutral pose.
+    frames = [(-KEY_STEP, 0.0)]
+    frames += [(frame, frame / CYCLE)
+               for frame in range(0, CYCLE + 1, KEY_STEP)]
+    frames += [(CYCLE + KEY_STEP, 1.0)]
+    for frame, t in frames:
+        rots, locs = apply_pose(t, pose_fn=roar_pose, solve_legs=False)
+        for name in rots:
+            rig.pose.bones[name].keyframe_insert('rotation_quaternion',
+                                                 frame=frame)
+            keyed_bones.add(name)
+        for name in locs:
+            rig.pose.bones[name].keyframe_insert('location', frame=frame)
+            keyed_bones.add(name)
+
+    fcurves = iter_fcurves(action)
+    for fcurve in fcurves:
+        for kp in fcurve.keyframe_points:
+            kp.interpolation = 'BEZIER'
+            kp.handle_left_type = 'AUTO_CLAMPED'
+            kp.handle_right_type = 'AUTO_CLAMPED'
+
+    n_keys = sum(len(fc.keyframe_points) for fc in fcurves)
+    print(f'ROAR: action "Roar" {CYCLE} frames @ {FPS} fps '
+          f'({CYCLE / FPS:.2f} s), fcurves={len(fcurves)} keys={n_keys} '
+          f'bones={len(keyed_bones)}')
+    return action
+
+
+def stash_action(rig, action):
+    """Park a clip in a muted NLA track so the glTF exporter picks it up.
+
+    ACTIONS mode exports the active action plus every action on an NLA track;
+    the track stays muted so the .blend still plays the Walk on Space.
+    """
+    track = rig.animation_data.nla_tracks.new()
+    track.name = action.name
+    track.strips.new(action.name, 0, action)
+    track.mute = True
+    print(f'ROAR: stashed "{action.name}" in NLA track "{track.name}" (muted)')
+
+
 def export_glb(mesh, rig, path):
     bpy.ops.object.select_all(action='DESELECT')
     mesh.select_set(True)
@@ -328,9 +457,34 @@ def export_glb(mesh, rig, path):
     print(f'WALK: exported {path}')
 
 
-def preview_sheet(mesh, rig):
+def contact_sheet(paths, cols, name, out_path):
+    """Tile rendered PNGs (left to right, top to bottom) into one sheet."""
     import numpy as np
 
+    tiles = []
+    for path in paths:
+        img = bpy.data.images.load(str(path))
+        w, h = img.size
+        tiles.append(np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4))
+        bpy.data.images.remove(img)
+    h, w = tiles[0].shape[:2]
+    rows = (len(tiles) + cols - 1) // cols
+    canvas = np.zeros((rows * h, cols * w, 4), dtype=np.float32)
+    canvas[..., 3] = 1.0
+    for i, tile in enumerate(tiles):
+        r, c = divmod(i, cols)
+        r = rows - 1 - r  # image pixels start bottom-left
+        canvas[r * h:(r + 1) * h, c * w:(c + 1) * w] = tile
+    out = bpy.data.images.new(name, width=cols * w, height=rows * h,
+                              alpha=False)
+    out.pixels = canvas.ravel()
+    out.filepath_raw = str(out_path)
+    out.file_format = 'PNG'
+    out.save()
+    print(f'PREVIEW: contact sheet -> {out_path}')
+
+
+def preview_sheet(mesh, rig):
     scene = bpy.context.scene
     lt.strip_default_objects()
     lt.pick_render_engine(scene)
@@ -352,29 +506,27 @@ def preview_sheet(mesh, rig):
     scene.frame_set(0)
     lt.render_to(PREVIEW_DIR / 'walk_front_f00.png',
                  views['front'], resolution=(520, 720), samples=10)
+    contact_sheet(paths, 4, 'walk_contact_sheet',
+                  PREVIEW_DIR / 'walk_contact_sheet.png')
 
-    sheet = []
-    for path in paths:
-        img = bpy.data.images.load(str(path))
-        w, h = img.size
-        sheet.append(np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4))
-        bpy.data.images.remove(img)
-    h, w = sheet[0].shape[:2]
-    cols = 4
-    rows = (len(sheet) + cols - 1) // cols
-    canvas = np.zeros((rows * h, cols * w, 4), dtype=np.float32)
-    canvas[..., 3] = 1.0
-    for i, tile in enumerate(sheet):
-        r, c = divmod(i, cols)
-        r = rows - 1 - r  # image pixels start bottom-left
-        canvas[r * h:(r + 1) * h, c * w:(c + 1) * w] = tile
-    out = bpy.data.images.new('walk_contact_sheet', width=cols * w,
-                              height=rows * h, alpha=False)
-    out.pixels = canvas.ravel()
-    out.filepath_raw = str(PREVIEW_DIR / 'walk_contact_sheet.png')
-    out.file_format = 'PNG'
-    out.save()
-    print(f'WALK: contact sheet -> {PREVIEW_DIR / "walk_contact_sheet.png"}')
+    # Roar strip: the same side view across the one-shot clip (the active
+    # action is swapped for the render and restored afterwards).
+    roar = bpy.data.actions.get('Roar')
+    if roar is not None:
+        rig.animation_data.action = roar
+        roar_paths = []
+        for frame in ROAR_PREVIEW_FRAMES:
+            scene.frame_set(frame)
+            path = PREVIEW_DIR / f'roar_f{frame:02d}.png'
+            lt.render_to(path, views['side'], resolution=(760, 400), samples=10)
+            roar_paths.append(path)
+        scene.frame_set(10)
+        lt.render_to(PREVIEW_DIR / 'roar_three_quarter_f10.png',
+                     views['three_quarter'], resolution=(900, 640), samples=10)
+        rig.animation_data.action = bpy.data.actions.get('Walk')
+        scene.frame_set(0)
+        contact_sheet(roar_paths, 4, 'roar_contact_sheet',
+                      PREVIEW_DIR / 'roar_contact_sheet.png')
 
 
 def parse_args():
@@ -405,11 +557,14 @@ def main():
     mesh, rig = lt.find_objects()
     lt.clear_pose(rig)
 
-    build_action(rig)
+    walk = build_action(rig)
+    roar = build_roar_action(rig)
+    stash_action(rig, roar)
+    rig.animation_data.action = walk   # Space still plays the Walk
     bpy.context.scene['T-Rex PS1 note'] = (
-        'Editable rig with the reconstructed in-place Walk action '
-        f'({CYCLE} frames @ {FPS} fps). Original geometry, UVs and textures '
-        'are untouched (1:1).'
+        'Editable rig with the reconstructed in-place Walk action and the '
+        f'one-shot Roar clip ({CYCLE} frames @ {FPS} fps each). Original '
+        'geometry, UVs and textures are untouched (1:1).'
     )
     out = args.out_dir.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -424,7 +579,8 @@ def main():
     if args.preview:
         preview_sheet(mesh, rig)
     print('WALK: done. Open the blend and press Space in Pose Mode to watch '
-          'the Walk action on TREX_EDITABLE_ARMATURE.')
+          'the Walk action on TREX_EDITABLE_ARMATURE; the Roar clip sits in '
+          'a muted NLA track (viewer key: 2).')
 
 
 if __name__ == '__main__':

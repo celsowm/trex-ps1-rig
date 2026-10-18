@@ -1,25 +1,32 @@
-# PS1 Developer's Demo T-Rex — editable Blender rig + reconstructed walk
+# PS1 Developer's Demo T-Rex — editable Blender rig + reconstructed walk & roar
 
 This repository takes the dinosaur model from the *PlayStation Developer's Demo
 CD* (Models — Dino) and builds, entirely headless (no GUI clicking), a fully
-editable Blender rig and a reconstructed walk-in-place animation:
+editable Blender rig and reconstructed in-place animations:
 
 - **1:1 source**: the original `dino.obj` (2332 vertices / 2724 triangles),
   its UVs, its material list and the six VRAM-page PNGs are used untouched.
   No retopology, no texture edits, no re-exported geometry.
-- **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 32 bones,
-  31 deform) with vertex groups and normalized 4-influence weights. Each foot
+- **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 33 bones,
+  32 deform) with vertex groups and normalized 4-influence weights. Each foot
   has three toe bones (`Toe1/2/3.L/.R`), so every claw follows its own joint.
+  The mouth is real topology too: the lower jaw is a separate island set
+  (`Jaw` hinge + `JawTip`), so it opens instead of tearing the muzzle.
 - **Walk cycle**: a 40-frame / 30 fps in-place loop (`Walk`, 1.33 s) solved
   with analytic 2-link IK so the claw tips follow an editable foot-target
   table. Feet plant flat, sweep back during stance and clear the ground
-  during swing.
+  during swing. The jaw breathes a few degrees twice per stride.
+- **Roar**: a 40-frame one-shot clip (`Roar`, 1.33 s): head and neck lift,
+  the mouth snaps open to 24°, growls with a pulsing jaw, snaps shut and
+  settles back into the rest pose.
 
 The original animation data does not exist in the OBJ, so the walk is a
 faithful **reconstruction** on the true model, not a byte-exact port of the
 demo's clip. See [NOTICE.md](NOTICE.md) for asset attribution.
 
 ![Walk contact sheet](diagnostics/walk/walk_contact_sheet.png)
+
+![Roar contact sheet](diagnostics/walk/roar_contact_sheet.png)
 
 ## Requirements
 
@@ -37,10 +44,10 @@ demo's clip. See [NOTICE.md](NOTICE.md) for asset attribution.
 ./run_all.sh
 ```
 
-That runs five steps: preflight test (no Blender) → build rig → animate walk,
-export GLB, render preview → verify GLB → viewer check (skipped when numpy is
-not installed). Everything is regenerated from `source/dino/dino.obj`; nothing
-in `output/` is hand-edited.
+That runs five steps: preflight test (no Blender) → build rig → animate walk
++ roar, export GLB, render preview → verify GLB → viewer check (skipped when
+numpy is not installed). Everything is regenerated from
+`source/dino/dino.obj`; nothing in `output/` is hand-edited.
 
 Then open the scene:
 
@@ -48,7 +55,10 @@ Then open the scene:
 open output/trex_editable.blend    # select the armature, Pose Mode, Space to play
 ```
 
-## Desktop viewer (mesh + rig + walk)
+`Space` plays the `Walk`. The one-shot `Roar` clip is parked in a muted NLA
+track (so the file opens on the walk); unmute it or pick it in the viewer.
+
+## Desktop viewer (mesh + rig + walk + roar)
 
 `viewer.py` is a native desktop viewer built for this repository — not a
 Blender window and not a web page. It parses the exported GLB itself
@@ -71,12 +81,14 @@ a virtualenv, or `python3 -m pip install --user --break-system-packages
 -r viewer/requirements.txt`.
 
 Window controls — the right-hand **control panel** shows the same commands as
-clickable buttons (play/pause, step, display toggles, lighting, camera reset):
+clickable buttons (play/pause, step, clip switch, display toggles, lighting,
+camera reset):
 
 | Key / control | Action |
 |---|---|
-| `Space` or the Play button | play / pause the Walk clip |
+| `Space` or the Play button | play / pause the active clip |
 | `Left` / `Right` (or `− 1 frame` / `+ 1 frame`) | scrub one frame back / forward |
+| `1` / `2` (or the Walk / Roar buttons) | switch clip: `Walk` (loop) / `Roar` (one-shot) |
 | `M` or the Mesh toggle | mesh on/off |
 | `R` or the Skeleton toggle | skeleton on/off |
 | `W` or the Wireframe toggle | wireframe overlay |
@@ -102,31 +114,31 @@ The renderer is our own OpenGL 3.3 code: GLB accessors decoded in `viewer/glb.py
 scene graph/animation/skinning in `viewer/scene.py`, and the shaders, buffers,
 textures (nearest filtering for the PS1 pixel look), grid, skeleton and
 screenshot readback in `viewer/renderer.py`. `viewer.py --check` validates the
-structure the viewer depends on (7 primitives, 32 joints, 6 textures, `Walk`
-at 40 frames / 30 fps) and prints joint world positions at frames 0/10/20/30;
-those match the Blender rig's pose bones to the millimetre.
+structure the viewer depends on (7 primitives, 33 joints, 6 textures, `Walk`
+and `Roar` at 40 frames / 30 fps) and prints joint world positions at frames
+0/10/20/30; those match the Blender rig's pose bones to the millimetre.
 
 ## Outputs
 
 | File | What it is |
 |---|---|
-| `output/trex_editable.blend` | Mesh + packed textures, armature, vertex groups, `Walk` action, frames 0–40 @ 30 fps |
-| `output/trex_blender_rig.glb` | Binary glTF: 1 skin (32 joints), 7 primitives, 6 packed textures, `Walk` clip (1.33 s, loops in place) |
+| `output/trex_editable.blend` | Mesh + packed textures, armature, vertex groups, `Walk` action (active) and `Roar` (muted NLA track), frames 0–40 @ 30 fps |
+| `output/trex_blender_rig.glb` | Binary glTF: 1 skin (33 joints), 7 primitives, 6 packed textures, `Walk` + `Roar` clips (1.33 s each) |
 | `diagnostics/rig/` | Test-pose renders (knee/hock/ankle/head/tail/arm extremes) |
-| `diagnostics/walk/` | Walk contact sheet, 3/4 still and front still |
+| `diagnostics/walk/` | Walk and Roar contact sheets plus 3/4 and front stills |
 
 ## The pipeline
 
 | Script | Role |
 |---|---|
 | `rig_trex_blender.py` | Parses the OBJ, builds mesh + materials (point-sampled textures), armature from the editable `JOINTS` table, and envelope weights. `--clean-scene` removes Blender's factory Cube/Light/Camera |
-| `animate_trex.py` | Builds the `Walk` action: `FOOT_TARGETS` table + analytic thigh/shin IK + parametric body/tail/head/arm layers. Saves the blend, exports the GLB, renders the contact sheet |
+| `animate_trex.py` | Builds the `Walk` action (`FOOT_TARGETS` table + analytic thigh/shin IK + parametric body/tail/head/arm layers) and the one-shot `Roar` (jaw + head lift), stashes the Roar in a muted NLA track so both clips export, saves the blend, exports the GLB, renders the contact sheet |
 | `diagnose_rig.py` | Headless rig diagnostics: bone axis table and signed test-pose renders into `diagnostics/rig/` |
 | `check_walk.py` | Numeric walk trace: claw-tip height per key frame, ground-penetration check |
 | `verify_glb.py` | Parses the GLB's JSON chunk: skin, joints, textures, animation name/duration |
 | `viewer.py` | Native desktop viewer (no Blender, no browser); `--check` validates the GLB headlessly |
 | `viewer/` | Viewer package: `glb.py` container/accessors, `scene.py` graph+skinning, `renderer.py` OpenGL, `app.py` window |
-| `test_rig_math.py` | No-Blender preflight: source integrity, weight normalization per vertex, foot-target table sanity |
+| `test_rig_math.py` | No-Blender preflight: source integrity, weight normalization per vertex, jaw island split, foot-target table sanity |
 | `run_all.sh` / `run_mac.sh` | One-shot full pipeline / rig-only pass |
 
 ## Tuning the walk
@@ -160,14 +172,17 @@ python3 verify_glb.py
    backward, the ankle low. The same points live in `JOINTS` in
    `rig_trex_blender.py`; change them there and rerun, or move them in the
    GUI and re-solve the walk afterwards.
-3. **Pose Mode**: play the `Walk` action (`Space`). Every frame is a plain
-   FK keyframe — no constraints, nothing hidden — so it is safe to edit.
+3. **Pose Mode**: play the `Walk` action (`Space`) or the stashed `Roar`
+   clip. Every frame is a plain FK keyframe — no constraints, nothing
+   hidden — so it is safe to edit.
 4. **Weight Paint** (`Thigh.L/.R` etc.): the scripted weights are a good
    starting envelope; hand-painting improves extreme poses. The untextured
-   `Untextured_faces` material faces are the mouth interior.
-5. `Jaw` exists but is deliberately unweighted: the OBJ has no separate
-   lower-jaw topology, so animating it would tear the muzzle. Split the
-   geometry first if you want a biting dino.
+   `Untextured_faces` material faces are the *eyes* (dark PS1 eye patches).
+5. **Jaw**: the mouth is a topological split in the OBJ. `bind()` finds the
+   lower-jaw islands (hinge plates, lips, chin, lower snout cap) and weights
+   them to `Jaw`/`JawTip`, with the throat skin blending toward the chin so
+   nothing shows through when the mouth opens. Move `Jaw`/`JawMid`/`JawTip`
+   in the `JOINTS` table to retarget the hinge.
 
 ## Verification
 
@@ -190,7 +205,8 @@ position per key frame and flags any below-ground penetration.
   taste parameters.
 - Weights are scripted envelopes: clean at all tested joint extremes, but a
   manual Weight Paint pass is the recommended final polish.
-- The jaw does not animate, by design (no separate jaw topology in the OBJ).
+- The Roar is a reconstruction: opening angle, growl pulse and head lift are
+  taste parameters (`ROAR_*` knobs in `animate_trex.py`).
 - Materials use `Closest` texture interpolation to preserve the PS1 pixel
   look; other renderers may show different filtering.
 
