@@ -9,12 +9,13 @@ script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
-           'vertex_weights','parse_obj']
+           'down_tooth_tips','vertex_weights','parse_obj']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
           and getattr(node.targets[0],'id','') in
-          ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND'))]
+          ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
+           'TEETH_TIP_MARGIN','TEETH_TIP_MIN'))]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -40,15 +41,33 @@ for name in ('Thigh','Shin','Tarsus','Foot','Toe1','Toe2','Toe3'):
 
 # Lower jaw: the mouth is a topology split in the source mesh, so the jaw
 # islands must be found, take nothing but Jaw/JawTip, and the skull side of
-# the mouth line must stay off the jaw bones. The throat skin under the jaw
-# blends into the jaw toward the chin so an open mouth shows no gap.
+# the mouth line must stay off the jaw bones - including the upper tooth
+# row, whose fangs hang into the jaw's box but must ride the skull or both
+# rows would move together and the closed mouth would never open. The
+# throat skin under the jaw blends into the jaw toward the chin so an open
+# mouth shows no gap.
 jaw,throat=env['jaw_vertex_sets'](vertices,faces)
-assert len(jaw)==241, f'Jaw island set changed: {len(jaw)} vertices (expected 241)'
+assert len(jaw)==158, f'Jaw island set changed: {len(jaw)} vertices (expected 158)'
 assert len(throat)==30, f'Throat island changed: {len(throat)} vertices (expected 30)'
 for i in jaw:
     w=env['jaw_weights'](vertices[i][2])
     assert set(w)<={'Jaw','JawTip'}, f'Jaw vertex {i} leaks onto {sorted(w)}'
     assert abs(sum(w.values())-1)<1e-5
+adjacency=defaultdict(set)
+for face in faces:
+    for a,b in zip(face,face[1:]+face[:1]):
+        adjacency[a].add(b)
+        adjacency[b].add(a)
+teeth=[]
+for island in env['mesh_islands'](len(vertices),faces):
+    if len(env['down_tooth_tips'](island,vertices,adjacency))>=env['TEETH_TIP_MIN']:
+        ys=[vertices[i][1] for i in island]
+        zs=[vertices[i][2] for i in island]
+        if min(zs)>=15.5 and min(ys)<=21.2:
+            teeth.append(island)
+assert len(teeth)==1 and len(teeth[0])==83, \
+    f'Upper tooth row island changed: {[len(t) for t in teeth]} (expected one with 83)'
+assert not (set(teeth[0])&jaw), 'Upper tooth row must stay off the jaw bones'
 upper=[]
 for island in env['mesh_islands'](len(vertices),faces):
     ys=[vertices[i][1] for i in island]
@@ -58,7 +77,8 @@ for island in env['mesh_islands'](len(vertices),faces):
 assert upper and not (set(upper)&jaw), 'Upper mouth pieces must stay off the jaw bones'
 front=max(throat,key=lambda i: vertices[i][2])
 assert env['smoothstep'](18.5,23.0,vertices[front][2])>0.9, 'Throat front must follow the jaw'
-print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it), '
+print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '
+      f'upper tooth row {len(teeth[0])} vertices on Head), '
       f'throat {len(throat)} vertices blend toward the chin')
 
 # Walk-cycle sanity without Blender: the foot-target table must stay above

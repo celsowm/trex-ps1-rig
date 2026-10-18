@@ -11,7 +11,9 @@ editable Blender rig and reconstructed in-place animations:
   32 deform) with vertex groups and normalized 4-influence weights. Each foot
   has three toe bones (`Toe1/2/3.L/.R`), so every claw follows its own joint.
   The mouth is real topology too: the lower jaw is a separate island set
-  (`Jaw` hinge + `JawTip`), so it opens instead of tearing the muzzle.
+  (`Jaw` hinge + `JawTip`) that carries the lower lip, chin and lower tooth
+  row, while the upper tooth row stays on `Head` — so the rows separate and
+  the mouth opens instead of tearing the muzzle.
 - **Walk cycle**: a 40-frame / 30 fps in-place loop (`Walk`, 1.33 s) solved
   with analytic 2-link IK so the claw tips follow an editable foot-target
   table. Feet plant flat, sweep back during stance and clear the ground
@@ -179,10 +181,14 @@ python3 verify_glb.py
    starting envelope; hand-painting improves extreme poses. The untextured
    `Untextured_faces` material faces are the *eyes* (dark PS1 eye patches).
 5. **Jaw**: the mouth is a topological split in the OBJ. `bind()` finds the
-   lower-jaw islands (hinge plates, lips, chin, lower snout cap) and weights
-   them to `Jaw`/`JawTip`, with the throat skin blending toward the chin so
-   nothing shows through when the mouth opens. Move `Jaw`/`JawMid`/`JawTip`
-   in the `JOINTS` table to retarget the hinge.
+   lower-jaw islands (hinge plates, lips, chin, lower snout cap, lower tooth
+   row) and weights them to `Jaw`/`JawTip`, with the throat skin blending
+   toward the chin so nothing shows through when the mouth opens. The upper
+   tooth row shares the jaw's bounding box — its fangs hang down past the
+   lower lip — so `jaw_vertex_sets()` detects it by its down-pointing tips
+   and keeps it on `Head`; that is what makes the two rows pull apart in the
+   Roar instead of staying meshed. Move `Jaw`/`JawMid`/`JawTip` in the
+   `JOINTS` table to retarget the hinge.
 
 ## Verification
 

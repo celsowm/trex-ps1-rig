@@ -197,10 +197,16 @@ def split_foot_toes(weights, x, y, z, side):
 # lip from the lower one at |y| ~ 21.3 without leaking. Measured on the OBJ:
 # every jaw island stays in front of JAW_MIN_Z and dips below JAW_MAX_TOP,
 # while the throat skin is the piece that reaches back into the neck.
+# The upper tooth row sits in that same box - its fangs hang down past the
+# lower lip - but it belongs to the skull. It is the one island in the box
+# whose tips point down, and keeping it on Head is what lets the two rows
+# actually separate when the mouth opens.
 JAW_MIN_Z = 15.5
 JAW_MAX_TOP = 21.2
 JAW_TIP_BAND = (21.5, 24.0)      # Jaw -> JawTip blend along the mouth
 THROAT_BAND = (18.5, 23.0)       # jaw share ramps in along the throat skin
+TEETH_TIP_MARGIN = 0.02          # a tooth tip clears its whole base by this
+TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 
 
 def mesh_islands(vertex_count, faces):
@@ -224,19 +230,43 @@ def mesh_islands(vertex_count, faces):
     return list(groups.values())
 
 
+def down_tooth_tips(island, vertices, adjacency):
+    """Island vertices whose every neighbour sits above: teeth pointing down."""
+    tips = []
+    for index in island:
+        neighbours = adjacency.get(index, ())
+        if len(neighbours) < 3:
+            continue
+        y = vertices[index][1]
+        if all(vertices[other][1] > y + TEETH_TIP_MARGIN
+               for other in neighbours):
+            tips.append(index)
+    return tips
+
+
 def jaw_vertex_sets(vertices, faces):
     """(jaw, throat) vertex indices: lower jaw islands and throat skin.
 
     Jaw islands sit entirely in front of JAW_MIN_Z and dip below the mouth
-    line (JAW_MAX_TOP); the throat island stays under the jaw while reaching
-    back into the neck (min z < JAW_MIN_Z).
+    line (JAW_MAX_TOP). The upper tooth row fits that same box, so it is
+    excluded explicitly: it is the island in the box whose tips point down
+    and it stays on Head. The throat island stays under the jaw while
+    reaching back into the neck (min z < JAW_MIN_Z).
     """
+    adjacency = defaultdict(set)
+    for face in faces:
+        for a, b in zip(face, face[1:] + face[:1]):
+            adjacency[a].add(b)
+            adjacency[b].add(a)
     jaw = set()
     throat = set()
     for island in mesh_islands(len(vertices), faces):
         ys = [vertices[i][1] for i in island]
         zs = [vertices[i][2] for i in island]
-        if min(zs) >= JAW_MIN_Z and min(ys) <= JAW_MAX_TOP:
+        in_jaw_box = min(zs) >= JAW_MIN_Z and min(ys) <= JAW_MAX_TOP
+        upper_teeth = (len(down_tooth_tips(island, vertices, adjacency))
+                       >= TEETH_TIP_MIN)
+        if in_jaw_box and not upper_teeth:
             jaw.update(island)
         elif max(ys) <= 20.6 and max(zs) >= 19.0 and min(zs) < JAW_MIN_Z:
             throat.update(island)
@@ -527,7 +557,7 @@ def main():
     rig=build_armature(coll)
     jaw,throat=jaw_vertex_sets(verts,faces)
     print(f'JAW: lower-jaw islands cover {len(jaw)} vertices, '
-          f'throat skin blends over {len(throat)}')
+          f'upper tooth row stays on Head, throat skin blends over {len(throat)}')
     stats=bind(mesh,verts,rig,jaw,throat)
     set_viewport(mesh,rig)
     bpy.context.scene.frame_set(1)
