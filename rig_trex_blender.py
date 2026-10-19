@@ -632,11 +632,9 @@ def build_armature(parent_collection):
     return obj
 
 
-def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset(),shell=None):
-    deform_names=[name for name,_,_,_,deform in BONE_DEF if deform]
-    vgroups={name:mesh_obj.vertex_groups.new(name=name) for name in deform_names}
-    stats=defaultdict(int)
-    total_bad=0
+def vertex_weight_table(src_vertices,jaw=frozenset(),throat=frozenset(),shell=None):
+    """Per-vertex weight dicts, with coincident mouth vertices welded."""
+    table=[]
     for i,v in enumerate(src_vertices):
         if i in jaw:
             # Lower-jaw islands are fully jaw-driven; the mouth split is real
@@ -654,6 +652,51 @@ def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset(),shell=
             weights=blend_weights(vertex_weights(v),jaw_weights(v[2]),shell[i])
         else:
             weights=vertex_weights(v)
+        table.append(weights)
+    return weld_coincident(src_vertices,table,jaw,shell or {})
+
+
+def weld_coincident(src_vertices,table,jaw,shell):
+    """Give vertices that share a position the same weights.
+
+    The mouth is a topological split, so the outer lip skin and the inner rim
+    strip sit at identical positions with different weights and tear into
+    dark cracks when the jaw turns. A cluster that holds a jaw-island vertex
+    and lip-shell vertices follows the jaw; any other cluster (the hinge,
+    where skull and jaw plates meet) takes the mean of its members.
+    """
+    clusters=defaultdict(list)
+    for i,v in enumerate(src_vertices):
+        clusters[tuple(round(c,3) for c in v)].append(i)
+    out=list(table)
+    for members in clusters.values():
+        if len(members)<2:
+            continue
+        names=set().union(*(table[i] for i in members))
+        if all(abs(table[i].get(n,0.0)-table[members[0]].get(n,0.0))<1e-3
+               for i in members for n in names):
+            continue
+        jaw_members=[i for i in members if i in jaw]
+        if jaw_members and all(i in jaw or i in shell for i in members):
+            merged=table[jaw_members[0]]
+        else:
+            merged={n:sum(table[i].get(n,0.0) for i in members)/len(members)
+                    for n in names}
+            top=sorted(merged.items(),key=lambda kv:-kv[1])[:4]
+            total=sum(w for _,w in top)
+            merged={n:w/total for n,w in top if w>1e-7}
+        for i in members:
+            out[i]=merged
+    return out
+
+
+def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset(),shell=None):
+    deform_names=[name for name,_,_,_,deform in BONE_DEF if deform]
+    vgroups={name:mesh_obj.vertex_groups.new(name=name) for name in deform_names}
+    stats=defaultdict(int)
+    total_bad=0
+    table=vertex_weight_table(src_vertices,jaw,throat,shell)
+    for i,weights in enumerate(table):
         if abs(sum(weights.values())-1.0)>1e-5:
             total_bad+=1
         for name,w in weights.items():

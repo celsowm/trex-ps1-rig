@@ -577,7 +577,7 @@ def _resample(pixels, width, height):
     return pixels[ys][:, xs]
 
 
-def screenshot(glb_path, out_path, time, width, height, clip=None):
+def screenshot(glb_path, out_path, time, width, height, clip=None, view=None):
     """Render one frame plus the HUD and save a PNG of exactly WxH pixels."""
     config = pyglet.gl.Config(double_buffer=True, major_version=3,
                               minor_version=3, forward_compatible=True)
@@ -591,9 +591,16 @@ def screenshot(glb_path, out_path, time, width, height, clip=None):
         scene.set_clip(clip)
     renderer = Renderer(scene)
     center, radius = scene.bounds_center_radius()
+    view = view or {}
     camera = OrbitCamera(center, radius * DEFAULT_FRAME,
-                         yaw=DEFAULT_YAW, pitch=DEFAULT_PITCH)
-    flags = {'mesh': True, 'rig': True, 'wireframe': False,
+                         yaw=view.get('yaw', DEFAULT_YAW),
+                         pitch=view.get('pitch', DEFAULT_PITCH))
+    if view.get('focus'):
+        # Aim at one joint at the requested time (e.g. 'JawTip') and zoom in.
+        index = scene.joint_index(view['focus'])
+        camera.target = scene.joint_world_positions(time)[index].copy()
+        camera.distance = view.get('distance', 1.2)
+    flags = {'mesh': True, 'rig': view.get('rig', True), 'wireframe': False,
              'grid': True, 'bones_on_top': True}
     renderer.draw(scene, time, camera, flags, 0, (fb_width, fb_height),
                   pixel_scale=window.scale)

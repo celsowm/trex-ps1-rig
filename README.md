@@ -19,7 +19,7 @@ editable Blender rig and reconstructed in-place animations:
   The mouth is real topology too: the lower jaw is a separate island set
   (`Jaw` hinge + `JawTip`) that carries the lower tooth row, and the chin and
   lower-lip skin of the outer head shell blends onto it below the tooth line,
-  while the upper tooth row stays on `Head` — so the rows separate and the
+  while coincident lip/hinge vertices are welded to identical weights (no cracks along the lip), and the upper tooth row stays on `Head` — so the rows separate and the
   mouth opens instead of tearing the muzzle.
 - **Walk cycle**: a 40-frame / 30 fps in-place loop (`Walk`, 1.33 s) solved
   with analytic 2-link IK so the claw tips follow an editable foot-target

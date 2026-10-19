@@ -10,7 +10,8 @@ mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
            'down_tooth_tips','vertex_weights','parse_obj','jaw_shell_shares','mouth_curtain_faces',
-           'tongue_geometry','enlarge_lower_teeth']
+           'tongue_geometry','enlarge_lower_teeth','vertex_weight_table',
+           'weld_coincident']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
@@ -115,6 +116,19 @@ big=env['enlarge_lower_teeth'](vertices,faces)
 moved=[i for i in range(len(vertices)) if big[i]!=vertices[i]]
 assert len(moved)==74 and max(big[i][1] for i in moved)>max(vertices[i][1] for i in moved)+0.4, \
     'Lower teeth rows changed'
+# Coincident mouth vertices (outer lip skin vs inner rim strip, hinge plates)
+# must carry identical weights, or the jaw tears dark cracks along the lip.
+shell0=env['jaw_shell_shares'](vertices,faces,jaw,throat)
+table=env['vertex_weight_table'](vertices,jaw,throat,shell0)
+clusters=defaultdict(list)
+for i,v in enumerate(vertices):
+    clusters[tuple(round(c,3) for c in v)].append(i)
+for members in clusters.values():
+    for i in members[1:]:
+        a,b=table[i],table[members[0]]
+        assert all(abs(a.get(n,0.0)-b.get(n,0.0))<1e-3 for n in set(a)|set(b)), \
+            f'Vertices {members} share a position but not weights'
+assert all(abs(sum(w.values())-1.0)<1e-5 and len(w)<=4 for w in table), 'Welded weights invalid'
 print(f'PASS: mouth opens ({len(cut)} curtain triangles dropped, {len(tf)}-triangle tongue, '
       f'{len(moved)} lower-tooth vertices enlarged)')
 print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '

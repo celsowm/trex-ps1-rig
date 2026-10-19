@@ -126,6 +126,16 @@ def main(argv=None):
                         help='clip name for --screenshot (default: first clip)')
     parser.add_argument('--size', default='1600x1000',
                         help='window/screenshot size WxH (default: 1600x1000)')
+    parser.add_argument('--focus', default=None, metavar='JOINT',
+                        help='--screenshot: aim the camera at this joint (e.g. JawTip)')
+    parser.add_argument('--yaw', type=float, default=None,
+                        help='--screenshot camera yaw in radians (0 = from +Z)')
+    parser.add_argument('--pitch', type=float, default=None,
+                        help='--screenshot camera pitch in radians')
+    parser.add_argument('--distance', type=float, default=None,
+                        help='--screenshot camera distance in metres with --focus')
+    parser.add_argument('--no-rig', action='store_true',
+                        help='--screenshot: hide the skeleton overlay')
     args = parser.parse_args(argv)
 
     path = (args.glb or DEFAULT_GLB).expanduser().resolve()
@@ -170,7 +180,12 @@ def main(argv=None):
         out_path = args.screenshot.expanduser().resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            screenshot(path, out_path, args.time, width, height, args.clip)
+            view = {k: v for k, v in (('focus', args.focus), ('yaw', args.yaw),
+                                      ('pitch', args.pitch),
+                                      ('distance', args.distance)) if v is not None}
+            if args.no_rig:
+                view['rig'] = False
+            screenshot(path, out_path, args.time, width, height, args.clip, view)
         except GlbError as error:
             print(f'viewer: cannot read {path}: {error}', file=sys.stderr)
             return 1
