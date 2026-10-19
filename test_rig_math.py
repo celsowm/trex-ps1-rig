@@ -9,18 +9,19 @@ script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
-           'down_tooth_tips','vertex_weights','parse_obj','jaw_shell_shares','mouth_curtain_faces',
-           'tongue_geometry','enlarge_lower_teeth','vertex_weight_table',
+           'down_tooth_tips','vertex_weights','parse_obj','lip_line_y','split_lip_line','jaw_shell_shares','mouth_curtain_faces',
+           'tongue_geometry','lower_teeth_geometry','vertex_weight_table',
            'weld_coincident']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
           and getattr(node.targets[0],'id','') in
           ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
-           'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_SEAM','JAW_SHELL_BAND',
+           'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_PROBE','JAW_SHELL_BAND','LIP_CUT_LIFT','LIP_CUT_GAP',
            'JAW_SHELL_CORNER','WELD_LIP','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
            'TONGUE_Z','TONGUE_WIDTH','TONGUE_BASE','TONGUE_TOP',
-           'LOWER_TEETH_BASE','LOWER_TEETH_LIFT','LOWER_TEETH_SPREAD'))]
+           'LOWER_RIM','LOWER_TEETH','LOWER_TEETH_SPAN','LOWER_TEETH_INSET',
+           'LOWER_TEETH_SINK','LOWER_TEETH_HEIGHT','LOWER_TEETH_RADIUS'))]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -81,14 +82,14 @@ for island in env['mesh_islands'](len(vertices),faces):
         upper.extend(island)
 assert upper and not (set(upper)&jaw), 'Upper mouth pieces must stay off the jaw bones'
 front=max(throat,key=lambda i: vertices[i][2])
-assert env['smoothstep'](18.5,23.0,vertices[front][2])>0.9, 'Throat front must follow the jaw'
+assert env['smoothstep'](*env['THROAT_BAND'],vertices[front][2])>0.9, 'Throat front must follow the jaw'
 
 # The outer head shell closes the mouth seamlessly, so the chin and the
 # lower-lip skin below the tooth line are not islands of their own: they
 # must be found as a blended skin region that rides the jaw, or the closed
 # chin stays on the skull while the thin inner jaw drops away.
 shell=env['jaw_shell_shares'](vertices,faces,jaw,throat)
-assert len(shell)==76, f'Jaw shell changed: {len(shell)} vertices (expected 76)'
+assert len(shell)==54, f'Jaw shell changed: {len(shell)} vertices (expected 54)'
 assert not (set(shell)&(set(jaw)|set(throat))), 'Jaw shell must not overlap jaw/throat'
 for i,share in shell.items():
     x,y,z=vertices[i]
@@ -103,19 +104,34 @@ assert abs(sum(mouth.values())-1.0)<1e-5 and 'JawTip' in mouth, \
     'Blended chin weights must land on Jaw/JawTip'
 # Mouth opening: the curtain slivers that sew the lips shut are found and
 # dropped; the tongue is a closed, jaw-box island that lands on Jaw/JawTip;
-# the lower tooth rows grow without moving their roots.
+# new cone teeth stand on both lower rims and ride the jaw.
 cut=env['mouth_curtain_faces'](vertices,faces)
-assert len(cut)==11, f'Curtain triangles changed: {len(cut)} (expected 11)'
+assert len(cut)==10, f'Curtain triangles changed: {len(cut)} (expected 10)'
 kept=[f for i,f in enumerate(faces) if i not in set(cut)]
+# The skin is cut along the lip line: afterwards no shell face in front of
+# the corner has one corner riding the jaw and another left on the skull,
+# so nothing stretches into a cheek membrane over the lower teeth.
+sv,sf,suv,sm=env['split_lip_line'](vertices,kept,[face_uv[i] for i in range(len(faces)) if i not in set(cut)],
+                                   [face_mats[i] for i in range(len(faces)) if i not in set(cut)])
+assert len(sf)==len(suv)==len(sm) and len(sf)>len(kept), 'Lip line cut split nothing'
+below=lambda i: sv[i][1]<env['lip_line_y'](sv[i][2])
+skin_faces=[f for f in sf if min(sv[i][2] for i in f)>=env['JAW_SHELL_CORNER'][0]
+            and len({below(i) for i in f})==2]
+sj,st=env['jaw_vertex_sets'](sv,sf)
+ss=env['jaw_shell_shares'](sv,sf,sj,st)
+straddle=[f for f in skin_faces if any(i in ss for i in f)]
+assert not straddle, f'{len(straddle)} skin faces still span the lip line'
 tv,tf=env['tongue_geometry'](len(vertices))
 assert tv and tf and max(max(f) for f in tf)==len(vertices)+len(tv)-1, 'Tongue indices out of range'
 whole=list(vertices)+tv
 jaw2,_=env['jaw_vertex_sets'](whole,kept+tf)
 assert set(range(len(vertices),len(whole)))<=jaw2, 'Tongue must ride the jaw bones'
-big=env['enlarge_lower_teeth'](vertices,faces)
-moved=[i for i in range(len(vertices)) if big[i]!=vertices[i]]
-assert len(moved)==74 and max(big[i][1] for i in moved)>max(vertices[i][1] for i in moved)+0.4, \
-    'Lower teeth rows changed'
+nv,nf=env['lower_teeth_geometry'](len(whole))
+assert len(nf)==6*env['LOWER_TEETH'] and max(max(f) for f in nf)==len(whole)+len(nv)-1, \
+    'Lower cone teeth indices out of range'
+jaw3,_=env['jaw_vertex_sets'](whole+nv,kept+tf+nf)
+assert set(range(len(whole),len(whole)+len(nv)))<=jaw3, 'Lower cone teeth must ride the jaw bones'
+assert all(abs(nv[i][0]+nv[i+4][0])<1e-9 for i in range(0,len(nv),8)), 'Tooth rows must mirror'
 # Coincident mouth vertices (outer lip skin vs inner rim strip, hinge plates)
 # must carry identical weights, or the jaw tears dark cracks along the lip.
 shell0=env['jaw_shell_shares'](vertices,faces,jaw,throat)
@@ -129,8 +145,8 @@ for members in clusters.values():
         assert all(abs(a.get(n,0.0)-b.get(n,0.0))<1e-3 for n in set(a)|set(b)), \
             f'Vertices {members} share a position but not weights'
 assert all(abs(sum(w.values())-1.0)<1e-5 and len(w)<=4 for w in table), 'Welded weights invalid'
-print(f'PASS: mouth opens ({len(cut)} curtain triangles dropped, {len(tf)}-triangle tongue, '
-      f'{len(moved)} lower-tooth vertices enlarged)')
+print(f'PASS: mouth opens ({len(cut)} curtain triangles dropped, skin cut along the lip line, {len(tf)}-triangle tongue, '
+      f'{len(nf)//3} lower cone teeth)')
 print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '
       f'upper tooth row {len(teeth[0])} vertices on Head), '
       f'throat {len(throat)} vertices blend toward the chin, '

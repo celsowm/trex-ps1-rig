@@ -4,14 +4,15 @@ This repository takes the dinosaur model from the *PlayStation Developer's Demo
 CD* (Models — Dino) and builds, entirely headless (no GUI clicking), a fully
 editable Blender rig and reconstructed in-place animations:
 
-- **Source mesh with three mouth edits**: the original `dino.obj` (2332 vertices /
-  2724 triangles), made at build time (`mouth_curtain_faces`, `tongue_geometry`,
-  `enlarge_lower_teeth` in `rig_trex_blender.py`) so the mouth really opens:
-  11 sliver triangles that sew the lips shut are dropped, a 75-triangle tongue
-  fills the hollow floor, and the lower tooth rows are scaled 1.6x in height and
-  1.3x in width because the originals hid behind the lip. Everything else is
-  used untouched:
-  its UVs, its material list and the six VRAM-page PNGs are used untouched.
+- **Source mesh with four mouth edits**: the original `dino.obj` (2332 vertices /
+  2724 triangles), changed at build time (`mouth_curtain_faces`, `split_lip_line`,
+  `tongue_geometry`, `lower_teeth_geometry` in `rig_trex_blender.py`) so the
+  mouth really opens: 10 sliver triangles that sew the lips shut are dropped,
+  the head skin is cut along the lip line (the big PS1 triangles that span the
+  closed mouth would otherwise stretch into cheek walls over the lower teeth),
+  a 75-triangle tongue fills the hollow floor, and 22 new cone teeth stand on
+  the lower rims because the original lower rows are tiny slivers. Everything
+  else - UVs, material list, the six VRAM-page PNGs - is used untouched.
   No retopology, no texture edits, no re-exported geometry.
 - **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 33 bones,
   32 deform) with vertex groups and normalized 4-influence weights. Each foot
@@ -192,11 +193,11 @@ python3 verify_glb.py
    lower-jaw islands (hinge plates, lips, lower snout cap, lower tooth row)
    and weights them to `Jaw`/`JawTip`. The outer head shell closes the mouth
    seamlessly, so its chin and lower-lip skin cannot be split off by islands:
-   `jaw_shell_shares()` finds that skin region (vertices below the tooth line
-   in front of the mouth corner) and blends it onto the jaw, fading to the
-   skull above the tooth line and behind the corner so the skin stretches
-   there instead of tearing. The throat skin blends toward the chin so
-   nothing shows through when the mouth opens. The upper tooth row shares
+   `split_lip_line()` cuts that skin along the lip line and
+   `jaw_shell_shares()` puts everything below the cut on the jaw, fading to
+   the skull behind the mouth corner so the corner stretches instead of
+   tearing. The throat skin is the jaw's floor in front of the hinge and
+   follows it fully, so it never slides across the open mouth. The upper tooth row shares
    the jaw's bounding box — its fangs hang down past the lower lip — so
    `jaw_vertex_sets()` detects it by its down-pointing tips and keeps it on
    `Head`; that is what makes the two rows pull apart in the Roar instead of

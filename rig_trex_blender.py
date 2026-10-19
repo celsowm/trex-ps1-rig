@@ -204,7 +204,7 @@ def split_foot_toes(weights, x, y, z, side):
 JAW_MIN_Z = 15.5
 JAW_MAX_TOP = 21.2
 JAW_TIP_BAND = (21.5, 24.0)      # Jaw -> JawTip blend along the mouth
-THROAT_BAND = (18.5, 23.0)       # jaw share ramps in along the throat skin
+THROAT_BAND = (15.0, 18.0)       # throat skin: neck behind the hinge, jaw floor in front
 TEETH_TIP_MARGIN = 0.02          # a tooth tip clears its whole base by this
 TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 # The outer head shell closes the mouth continuously, so its chin and lower
@@ -212,9 +212,19 @@ TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 # That region blends onto the jaw so the closed-mouth chin and the lip below
 # the tooth line descend with the teeth instead of hanging on the skull.
 # Blend ramps along y around the tooth line and fades out behind the corner.
-LOWER_TEETH_BASE = 21.0          # y where the lower tooth rows grow from
-LOWER_TEETH_LIFT = 1.6           # tooth height scale (source teeth are tiny)
-LOWER_TEETH_SPREAD = 1.12        # x scale: out to the rim, still inside the lip skin
+# Lower lip rim of the source mesh, right side, back to front (x, y, z).
+LOWER_RIM = ((1.14, 21.17, 20.22), (1.26, 21.21, 20.83), (1.19, 21.15, 21.23),
+             (1.11, 21.09, 21.64), (1.04, 21.02, 22.04), (0.96, 20.96, 22.44),
+             (0.84, 20.95, 23.12), (0.77, 20.98, 23.52), (0.70, 21.00, 23.91),
+             (0.63, 21.02, 24.31), (0.58, 21.03, 24.58), (0.34, 21.04, 24.77),
+             (0.00, 21.06, 24.96))
+LOWER_TEETH = 11                 # new cone teeth per side along the rim
+LOWER_TEETH_SPAN = (0.12, 0.93)  # rim arc fraction the row covers (back, front)
+LOWER_TEETH_INSET = 0.06         # cone axis sits this far inboard of the rim
+LOWER_TEETH_SINK = 0.06          # cone base sinks below the rim
+LOWER_TEETH_HEIGHT = (0.65, 0.85, 0.55)  # back, middle, front tooth height
+LOWER_TEETH_RADIUS = 0.11        # cone base radius
+LOWER_TEETH_UV_FACE = 1880       # bright upper-tooth triangle: (base, base, tip) UVs
 TONGUE_STEPS = 9                 # sections along the mouth floor
 TONGUE_Z = (20.8, 24.4)          # tongue root -> tip
 TONGUE_WIDTH = (0.95, 0.30)      # half-width at root and tip
@@ -223,8 +233,10 @@ TONGUE_TOP = (21.40, 21.15)      # crest height at root and tip
 TONGUE_UV_FACE = 2268            # source triangle whose texel colours the tongue
 CURTAIN_HIGH = 0.5               # share of the lower-rim end of a curtain sliver
 CURTAIN_LOW = 0.35               # share of its head-side end
-JAW_SHELL_SEAM = 21.1           # tooth line y across the front of the mouth
-JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
+JAW_SHELL_BAND = 0.004           # skin blend half-width around the cut lip line
+JAW_SHELL_PROBE = 20.7           # a jaw-shell island dips below this y up front
+LIP_CUT_LIFT = 0.06              # mouth cut runs this far above LOWER_RIM
+LIP_CUT_GAP = 0.005              # half-gap between the two copies of a cut point
 JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
 WELD_LIP = (0.3, 0.6)            # lip-rim share band: skin weights -> jaw weights
 
@@ -293,15 +305,88 @@ def jaw_vertex_sets(vertices, faces):
     return jaw, throat
 
 
+def lip_line_y(z):
+    """y of the mouth line at depth z: just above the lower lip rim."""
+    rim = sorted(LOWER_RIM, key=lambda p: p[2])
+    if z <= rim[0][2]:
+        return rim[0][1] + LIP_CUT_LIFT
+    for (_, y0, z0), (_, y1, z1) in zip(rim, rim[1:]):
+        if z <= z1:
+            return y0 + (y1 - y0) * (z - z0) / (z1 - z0) + LIP_CUT_LIFT
+    return rim[-1][1] + LIP_CUT_LIFT
+
+
+def split_lip_line(vertices, faces, uvs, mats):
+    """Cut the head skin along the mouth line so the lips can part.
+
+    PS1 triangles are big: many shell faces span the closed mouth with one
+    corner on the upper lip and another on the lower, so they stretch into
+    cheek membranes that wall in the lower teeth however the weights fall.
+    Every shell face in front of the corner that crosses lip_line_y() is
+    split at the line; each cut point gets an upper and a lower copy a hair
+    apart (LIP_CUT_GAP), so the skull side and the jaw side become separate
+    edges. Returns new (vertices, faces, uvs, mats).
+    """
+    jaw, throat = jaw_vertex_sets(vertices, faces)
+    shell = jaw_shell_shares(vertices, faces, jaw, throat)
+    skin = set()
+    for island in mesh_islands(len(vertices), faces):
+        if shell.keys() & set(island):
+            skin.update(island)
+    vertices = list(vertices)
+    out_f, out_uv, out_m = [], [], []
+    cache = {}
+
+    def side(i):
+        return vertices[i][1] < lip_line_y(vertices[i][2])
+
+    def cut(i, j, lower):
+        key = (min(i, j), max(i, j), lower)
+        if key not in cache:
+            p, q = vertices[i], vertices[j]
+            gp = p[1] - lip_line_y(p[2])
+            gq = q[1] - lip_line_y(q[2])
+            t = gp / (gp - gq)
+            x, _, z = (a + (b - a) * t for a, b in zip(p, q))
+            # snap onto the (piecewise) line so each copy lands on its side
+            y = lip_line_y(z) + (-LIP_CUT_GAP if lower else LIP_CUT_GAP)
+            cache[key] = (len(vertices), t)
+            vertices.append((x, y, z))
+        index, t = cache[key]
+        return index, (t if i < j else 1.0 - t)
+
+    for face, uv, mat in zip(faces, uvs, mats):
+        sides = [side(i) for i in face]
+        if (not set(face) <= skin or len(set(sides)) == 1
+                or min(vertices[i][2] for i in face) < JAW_SHELL_CORNER[0]):
+            out_f.append(face); out_uv.append(uv); out_m.append(mat)
+            continue
+        # rotate so corner 0 is the lone side
+        k = [n for n in range(3) if sides.count(sides[n]) == 1][0]
+        a, b, c = face[k], face[(k + 1) % 3], face[(k + 2) % 3]
+        ua, ub, uc = uv[k], uv[(k + 1) % 3], uv[(k + 2) % 3]
+        lone = sides[k]
+        p_lone, tp = cut(a, b, lone)
+        q_lone, tq = cut(a, c, lone)
+        p_pair, _ = cut(a, b, not lone)
+        q_pair, _ = cut(a, c, not lone)
+        lerp = lambda s, e, t: tuple(m + (n - m) * t for m, n in zip(s, e))
+        up, uq = lerp(ua, ub, tp), lerp(ua, uc, tq)
+        out_f += [(a, p_lone, q_lone), (p_pair, b, c), (p_pair, c, q_pair)]
+        out_uv += [(ua, up, uq), (up, ub, uc), (up, uc, uq)]
+        out_m += [mat] * 3
+    return vertices, out_f, out_uv, out_m
+
+
 def jaw_shell_shares(vertices, faces, jaw, throat):
     """{vertex: jaw share} for the closed-mouth head skin around the jaw.
 
     The big outer shell island wraps the whole head, so the chin and the
     lower-lip skin below the tooth line cannot be split off by islands. They
     prove themselves by dipping below the mouth line in front of the corner;
-    those vertices get a share of Jaw/JawTip that ramps from 1 below the
-    tooth line to 0 above it, fading to 0 behind the mouth corner so the
-    skin stretches at the corner instead of tearing. The upper tooth row is
+    those vertices get a share of Jaw/JawTip: 1 below the lip line (which
+    split_lip_line() has cut the skin along) and 0 above it, fading to 0
+    behind the mouth corner so the gape closes smoothly into the corner. The upper tooth row is
     excluded like in jaw_vertex_sets: its fangs dip past the line too.
     """
     adjacency = defaultdict(set)
@@ -309,7 +394,7 @@ def jaw_shell_shares(vertices, faces, jaw, throat):
         for a, b in zip(face, face[1:] + face[:1]):
             adjacency[a].add(b)
             adjacency[b].add(a)
-    probe_z = JAW_SHELL_SEAM - JAW_SHELL_BAND
+    probe_z = JAW_SHELL_PROBE
     shares = {}
     for island in mesh_islands(len(vertices), faces):
         if set(island) & (jaw | throat) or len(island) < 20:
@@ -326,8 +411,8 @@ def jaw_shell_shares(vertices, faces, jaw, throat):
             continue
         for i in island:
             x, y, z = vertices[i]
-            below = 1.0 - smoothstep(JAW_SHELL_SEAM - JAW_SHELL_BAND,
-                                     JAW_SHELL_SEAM + JAW_SHELL_BAND, y)
+            lip = lip_line_y(z)
+            below = 1.0 - smoothstep(lip - JAW_SHELL_BAND, lip + JAW_SHELL_BAND, y)
             front = smoothstep(*JAW_SHELL_CORNER, z)
             share = below * front
             if share > 1e-6:
@@ -395,26 +480,49 @@ def tongue_geometry(first_index):
     return verts, faces
 
 
-def enlarge_lower_teeth(vertices, faces):
-    """Copy of vertices with the lower tooth rows grown and spread outward.
+def lower_teeth_geometry(first_index):
+    """(vertices, faces) of two rows of cone teeth on the lower lip rim.
 
-    The two lower rows (one jaw island per side, 30-45 vertices) are only
-    ~0.5 tall and sit inboard of the lip wall, so they vanish behind the
-    chin skin and the open mouth looks toothless below. Scaling them about
-    their base (y = LOWER_TEETH_BASE) lifts the tips clear of the lip; the x
-    spread brings them out to the jaw rim.
+    The source lower rows are ~0.5-tall slivers that sit behind the lip wall
+    and read as a toothless jaw once the mouth opens; scaling them only
+    pushed them through the lip. These are new three-sided cones standing on
+    LOWER_RIM, inboard of the upper fangs so the closed mouth hides them.
+    Each cone is its own island inside the jaw box, so jaw_vertex_sets()
+    puts it on Jaw/JawTip like the tongue. Faces are (base, base, tip) to
+    match the LOWER_TEETH_UV_FACE UVs.
     """
-    jaw, _ = jaw_vertex_sets(vertices, faces)
-    out = list(vertices)
-    for island in mesh_islands(len(vertices), faces):
-        if not (30 <= len(island) <= 45 and set(island) <= jaw):
-            continue
-        for i in island:
-            x, y, z = vertices[i]
-            out[i] = (x * LOWER_TEETH_SPREAD,
-                      LOWER_TEETH_BASE + (y - LOWER_TEETH_BASE) * LOWER_TEETH_LIFT,
-                      z)
-    return out
+    seg = [math.dist(a, b) for a, b in zip(LOWER_RIM, LOWER_RIM[1:])]
+    total = sum(seg)
+
+    def rim_at(f):
+        d = f * total
+        for (a, b), length in zip(zip(LOWER_RIM, LOWER_RIM[1:]), seg):
+            if d <= length:
+                t = d / length
+                return tuple(p + (q - p) * t for p, q in zip(a, b))
+            d -= length
+        return LOWER_RIM[-1]
+
+    verts, faces = [], []
+    for k in range(LOWER_TEETH):
+        t = k / (LOWER_TEETH - 1)
+        f = LOWER_TEETH_SPAN[0] + (LOWER_TEETH_SPAN[1] - LOWER_TEETH_SPAN[0]) * t
+        x, y, z = rim_at(f)
+        back, mid, front = LOWER_TEETH_HEIGHT
+        h = back + (mid - back) * t * 2 if t < 0.5 else mid + (front - mid) * (t - 0.5) * 2
+        r = LOWER_TEETH_RADIUS
+        for side in (1.0, -1.0):
+            cx = side * max(abs(x) - LOWER_TEETH_INSET, 0.12)
+            by = y - LOWER_TEETH_SINK
+            base = [(cx, by, z + r), (cx + side * 0.8 * r, by, z - 0.6 * r),
+                    (cx - side * 0.8 * r, by, z - 0.6 * r)]
+            tip = (cx, by + h, z - 0.04)
+            i = first_index + len(verts)
+            verts += base + [tip]
+            for j in range(3):
+                a, b = i + j, i + (j + 1) % 3
+                faces.append((a, b, i + 3) if side > 0 else (b, a, i + 3))
+    return verts, faces
 
 
 def jaw_weights(z):
@@ -564,6 +672,7 @@ def build_mesh(obj_path, parent_collection):
     if not vertices or not faces:
         raise RuntimeError('OBJ did not contain vertices/faces')
     uv_src=list(uv_coords)
+    face_mats_src=list(face_mats)
     mouth_material=face_mats[TONGUE_UV_FACE]
     cut=set(mouth_curtain_faces(vertices,faces))
     keep=[i for i in range(len(faces)) if i not in cut]
@@ -571,7 +680,9 @@ def build_mesh(obj_path, parent_collection):
     uv_coords=[uv_coords[i] for i in keep]
     face_mats=[face_mats[i] for i in keep]
     print(f'MOUTH: dropped {len(cut)} curtain triangles that sew the mouth shut')
-    vertices=enlarge_lower_teeth(vertices,faces)
+    before=len(faces)
+    vertices,faces,uv_coords,face_mats=split_lip_line(vertices,faces,uv_coords,face_mats)
+    print(f'MOUTH: cut the skin along the lip line ({(len(faces)-before)//2} faces split)')
     t_verts,t_faces=tongue_geometry(len(vertices))
     centre=tuple(sum(c)/3.0 for c in zip(*uv_src[TONGUE_UV_FACE]))
     vertices=list(vertices)+t_verts
@@ -579,6 +690,12 @@ def build_mesh(obj_path, parent_collection):
     uv_coords=uv_coords+[(centre,)*3]*len(t_faces)
     face_mats=face_mats+[mouth_material]*len(t_faces)
     print(f'MOUTH: added a {len(t_faces)}-triangle tongue')
+    n_verts,n_faces=lower_teeth_geometry(len(vertices))
+    vertices=vertices+n_verts
+    faces=faces+n_faces
+    uv_coords=uv_coords+[uv_src[LOWER_TEETH_UV_FACE]]*len(n_faces)
+    face_mats=face_mats+[face_mats_src[LOWER_TEETH_UV_FACE]]*len(n_faces)
+    print(f'MOUTH: added {len(n_faces)//3} lower cone teeth')
     mesh=bpy.data.meshes.new('Dino PS1 source topology and UVs')
     mesh.from_pydata([src_to_blender(v) for v in vertices],[],faces)
     mesh.update()
