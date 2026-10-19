@@ -212,7 +212,10 @@ TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 # That region blends onto the jaw so the closed-mouth chin and the lip below
 # the tooth line descend with the teeth instead of hanging on the skull.
 # Blend ramps along y around the tooth line and fades out behind the corner.
-JAW_SHELL_SEAM = 21.1            # tooth line y across the front of the mouth
+LOWER_TEETH_BASE = 21.0          # y where the lower tooth rows grow from
+LOWER_TEETH_LIFT = 1.6           # tooth height scale (source teeth are tiny)
+LOWER_TEETH_SPREAD = 1.3         # x scale: move the rows out to the jaw rim
+JAW_SHELL_SEAM = 21.1           # tooth line y across the front of the mouth
 JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
 JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
 
@@ -321,6 +324,28 @@ def jaw_shell_shares(vertices, faces, jaw, throat):
             if share > 1e-6:
                 shares[i] = share
     return shares
+
+
+def enlarge_lower_teeth(vertices, faces):
+    """Copy of vertices with the lower tooth rows grown and spread outward.
+
+    The two lower rows (one jaw island per side, 30-45 vertices) are only
+    ~0.5 tall and sit inboard of the lip wall, so they vanish behind the
+    chin skin and the open mouth looks toothless below. Scaling them about
+    their base (y = LOWER_TEETH_BASE) lifts the tips clear of the lip; the x
+    spread brings them out to the jaw rim.
+    """
+    jaw, _ = jaw_vertex_sets(vertices, faces)
+    out = list(vertices)
+    for island in mesh_islands(len(vertices), faces):
+        if not (30 <= len(island) <= 45 and set(island) <= jaw):
+            continue
+        for i in island:
+            x, y, z = vertices[i]
+            out[i] = (x * LOWER_TEETH_SPREAD,
+                      LOWER_TEETH_BASE + (y - LOWER_TEETH_BASE) * LOWER_TEETH_LIFT,
+                      z)
+    return out
 
 
 def jaw_weights(z):
@@ -469,6 +494,7 @@ def build_mesh(obj_path, parent_collection):
     vertices,faces,uv_coords,face_mats=parse_obj(obj_path)
     if not vertices or not faces:
         raise RuntimeError('OBJ did not contain vertices/faces')
+    vertices=enlarge_lower_teeth(vertices,faces)
     mesh=bpy.data.meshes.new('Dino PS1 source topology and UVs')
     mesh.from_pydata([src_to_blender(v) for v in vertices],[],faces)
     mesh.update()
