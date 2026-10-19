@@ -18,7 +18,7 @@ body=[node for node in mod.body
           and getattr(node.targets[0],'id','') in
           ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
            'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_SEAM','JAW_SHELL_BAND',
-           'JAW_SHELL_CORNER','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
+           'JAW_SHELL_CORNER','WELD_LIP','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
            'TONGUE_Z','TONGUE_WIDTH','TONGUE_BASE','TONGUE_TOP',
            'LOWER_TEETH_BASE','LOWER_TEETH_LIFT','LOWER_TEETH_SPREAD'))]
 env={'math':math,'defaultdict':defaultdict}

@@ -214,7 +214,7 @@ TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 # Blend ramps along y around the tooth line and fades out behind the corner.
 LOWER_TEETH_BASE = 21.0          # y where the lower tooth rows grow from
 LOWER_TEETH_LIFT = 1.6           # tooth height scale (source teeth are tiny)
-LOWER_TEETH_SPREAD = 1.3         # x scale: move the rows out to the jaw rim
+LOWER_TEETH_SPREAD = 1.12        # x scale: out to the rim, still inside the lip skin
 TONGUE_STEPS = 9                 # sections along the mouth floor
 TONGUE_Z = (20.8, 24.4)          # tongue root -> tip
 TONGUE_WIDTH = (0.95, 0.30)      # half-width at root and tip
@@ -226,6 +226,7 @@ CURTAIN_LOW = 0.35               # share of its head-side end
 JAW_SHELL_SEAM = 21.1           # tooth line y across the front of the mouth
 JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
 JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
+WELD_LIP = (0.3, 0.6)            # lip-rim share band: skin weights -> jaw weights
 
 
 def mesh_islands(vertex_count, faces):
@@ -662,7 +663,8 @@ def weld_coincident(src_vertices,table,jaw,shell):
     The mouth is a topological split, so the outer lip skin and the inner rim
     strip sit at identical positions with different weights and tear into
     dark cracks when the jaw turns. A cluster that holds a jaw-island vertex
-    and lip-shell vertices follows the jaw; any other cluster (the hinge,
+    and lip-shell vertices follows the jaw along the front lip and the skin
+    near the corner (WELD_LIP); any other cluster (the hinge,
     where skull and jaw plates meet) takes the mean of its members.
     """
     clusters=defaultdict(list)
@@ -677,14 +679,21 @@ def weld_coincident(src_vertices,table,jaw,shell):
                for i in members for n in names):
             continue
         jaw_members=[i for i in members if i in jaw]
+        skin=[i for i in members if i in shell]
         if jaw_members and all(i in jaw or i in shell for i in members):
             merged=table[jaw_members[0]]
+            if skin:
+                # Front lip rim rides the jaw; toward the corner the rim
+                # takes the skin's own share so the corner stretches
+                # gradually instead of tearing the cheek open.
+                t=smoothstep(*WELD_LIP,shell[skin[0]])
+                merged=blend_weights(table[skin[0]],merged,t)
         else:
             merged={n:sum(table[i].get(n,0.0) for i in members)/len(members)
                     for n in names}
-            top=sorted(merged.items(),key=lambda kv:-kv[1])[:4]
-            total=sum(w for _,w in top)
-            merged={n:w/total for n,w in top if w>1e-7}
+        top=sorted(merged.items(),key=lambda kv:-kv[1])[:4]
+        total=sum(w for _,w in top)
+        merged={n:w/total for n,w in top if w>1e-7}
         for i in members:
             out[i]=merged
     return out
