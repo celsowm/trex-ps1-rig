@@ -214,7 +214,7 @@ TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 # Blend ramps along y around the tooth line and fades out behind the corner.
 JAW_SHELL_SEAM = 21.1            # tooth line y across the front of the mouth
 JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
-JAW_SHELL_CORNER = (19.8, 21.4)  # the blend fades out behind this z band
+JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
 
 
 def mesh_islands(vertex_count, faces):

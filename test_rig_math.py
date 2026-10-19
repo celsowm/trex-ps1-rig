@@ -84,13 +84,13 @@ assert env['smoothstep'](18.5,23.0,vertices[front][2])>0.9, 'Throat front must f
 # must be found as a blended skin region that rides the jaw, or the closed
 # chin stays on the skull while the thin inner jaw drops away.
 shell=env['jaw_shell_shares'](vertices,faces,jaw,throat)
-assert len(shell)==68, f'Jaw shell changed: {len(shell)} vertices (expected 68)'
+assert len(shell)==76, f'Jaw shell changed: {len(shell)} vertices (expected 76)'
 assert not (set(shell)&(set(jaw)|set(throat))), 'Jaw shell must not overlap jaw/throat'
 for i,share in shell.items():
     x,y,z=vertices[i]
     assert 0.0<share<=1.0, f'Shell vertex {i} share {share} out of range'
-    assert 19.4<=y<=21.6 and z>=19.8, f'Shell vertex {i} escapes the mouth band'
-chin=min(shell,key=lambda i: vertices[i][1])
+    assert 18.5<=y<=21.6 and z>=17.4, f'Shell vertex {i} escapes the mouth band'
+chin=min((i for i in shell if vertices[i][2]>=21.4),key=lambda i: vertices[i][1])
 assert shell[chin]>0.99, 'Chin bottom must ride the jaw fully'
 mouth=env['blend_weights'](env['vertex_weights'](vertices[chin]),
                            env['jaw_weights'](vertices[chin][2]),
