@@ -11,3 +11,6 @@ __pycache__/
 
 # Temporary render/frame dumps (final previews live in diagnostics/)
 render_tmp/
+
+# Viewer hotkey screenshots (S)
+viewer_shots/

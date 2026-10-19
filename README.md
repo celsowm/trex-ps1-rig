@@ -99,6 +99,7 @@ camera reset):
 | `L` or the Shaded / Direct / Unlit buttons | lighting: shaded, headlight only, unlit |
 | `F` or the Reset view button | reset camera |
 | `P` | show / hide the control panel |
+| `S` | save a screenshot of the window to `viewer_shots/shot_NNN.png` (path printed in the status bar and console) |
 | mouse | drag to orbit, shift-drag (or right-drag) to pan |
 | wheel / trackpad | scroll to zoom (wheel notches take fixed steps; trackpad deltas zoom proportionally, momentum clamped per event) |
 | trackpad pinch (macOS) | pinch to zoom in / out |

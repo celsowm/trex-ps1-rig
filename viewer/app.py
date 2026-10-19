@@ -8,7 +8,9 @@ handy for documentation and automated checks.
 from __future__ import annotations
 
 import sys
+import time
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pyglet
@@ -32,7 +34,7 @@ WINDOW_HEIGHT = 800
 
 HELP_LINES = (
     'Space play/pause   Left/Right scrub   M mesh   R rig   W wireframe   T bones on top',
-    'G grid   L lighting   F reset view   P panel   1 Walk / 2 Roar   Mouse: drag orbit, shift/right-drag pan, scroll/pinch zoom',
+    'G grid   L lighting   F reset view   P panel   S screenshot   1 Walk / 2 Roar   Mouse: drag orbit, shift/right-drag pan, scroll/pinch zoom',
 )
 
 DEFAULT_YAW = 0.95
@@ -299,6 +301,10 @@ class ViewerWindow(pyglet.window.Window):
         self.playing = True
         self.speed = 1.0
         self._status_age = 0.0
+        self._shot_request = False
+        self._shot_count = 0
+        self._notice = ''
+        self._notice_until = 0.0
         self._build_hud()
         self.panel = ControlPanel(self)
         self._camera_drag = False
@@ -358,6 +364,8 @@ class ViewerWindow(pyglet.window.Window):
             for name, value in self.flags.items())
         self.status.text = (f'T-Rex native viewer | {clip} {self.scene.duration:.2f}s '
                             f'{state} t={self.time:.2f}s | {switches}')
+        if time.monotonic() < self._notice_until:
+            self.status.text += f' | {self._notice}'
 
     def _sync_layout(self):
         """Rebuild HUD/panel positions when the framebuffer size changes.
@@ -421,6 +429,26 @@ class ViewerWindow(pyglet.window.Window):
         self.status.draw()
         self.hud.draw()
         self.panel.draw()
+        if self._shot_request:
+            self._shot_request = False
+            self._save_screenshot()
+
+    def _save_screenshot(self):
+        """Save exactly what is on screen (HUD and panel included)."""
+        folder = Path('viewer_shots')
+        folder.mkdir(exist_ok=True)
+        self._shot_count += 1
+        path = folder / f'shot_{self._shot_count:03d}.png'
+        while path.exists():
+            self._shot_count += 1
+            path = folder / f'shot_{self._shot_count:03d}.png'
+        pixels = read_framebuffer(self.width, self.height)
+        image = pyglet.image.ImageData(self.width, self.height, 'RGBA',
+                                       pixels.tobytes(), pitch=self.width * 4)
+        image.save(str(path))
+        self._notice = f'screenshot saved: {path}'
+        self._notice_until = time.monotonic() + 4.0
+        print(f'viewer: screenshot saved to {path.resolve()}')
 
     # ------------------------------------------------------------- input
 
@@ -444,6 +472,8 @@ class ViewerWindow(pyglet.window.Window):
             self.reset_view()
         elif symbol == key.P:
             self.panel.visible = not self.panel.visible
+        elif symbol == key.S:
+            self._shot_request = True
         elif symbol in (key._1, key.NUM_1):
             self.set_clip(0)
         elif symbol in (key._2, key.NUM_2):

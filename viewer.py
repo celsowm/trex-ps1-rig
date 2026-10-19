@@ -12,7 +12,7 @@ renderer and a pyglet window, all written in this repository.
 Window controls:
     Space play/pause     Left/Right scrub one frame
     M mesh   R rig   W wireframe   T bones on top   G grid
-    L cycle lighting     F reset view     1 Walk   2 Roar
+    L cycle lighting     F reset view     S screenshot    1 Walk   2 Roar
     Mouse: drag to orbit, shift-drag (or right-drag) to pan, wheel to zoom
 
 Requirements (see viewer/requirements.txt):
