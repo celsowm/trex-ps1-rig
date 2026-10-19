@@ -101,13 +101,14 @@ TOE_DIP_LAND = 4.0        # claws reach slightly on touchdown
 # ----------------------------------------------------------------- jaw knobs
 JAW_BREATH = 3.5          # mouth opening (deg) at the top of each step
 JAW_BREATH_TIP = 0.35     # share of that bending the jaw tip
-ROAR_OPEN = 40.0          # jaw opening at the peak of the Roar clip. The hinge
+ROAR_OPEN = 30.0          # jaw opening at the peak of the Roar clip. The hinge
                           # sits far back (behind the mouth corner), so a small
                           # gape still leaves the rear fangs meshed; 40 degrees
                           # lifts the corner fangs clear and opens the whole
                           # visible mouth line instead of just the snout tip.
 ROAR_PULSE = 1.6          # growl pulse riding on the open jaw
-ROAR_TIP = 0.30           # extra tip curl (share of the opening)
+ROAR_TIP = 0.05           # extra tip curl (share of the opening); more than a
+                          # few percent folds the jaw into an elbow at JawMid
 ROAR_NECK = -7.0          # neck pitch up during the roar
 ROAR_HEAD = -5.0
 ROAR_SPINE = -1.5
