@@ -4,9 +4,13 @@ This repository takes the dinosaur model from the *PlayStation Developer's Demo
 CD* (Models — Dino) and builds, entirely headless (no GUI clicking), a fully
 editable Blender rig and reconstructed in-place animations:
 
-- **1:1 source** (one exception: the two lower tooth rows are scaled up 1.6x
-  in height and 1.3x in width at build time, `enlarge_lower_teeth()`, because
-  the originals hide behind the lip and the open mouth looked toothless): the original `dino.obj` (2332 vertices / 2724 triangles),
+- **Source mesh with three mouth edits**: the original `dino.obj` (2332 vertices /
+  2724 triangles), made at build time (`mouth_curtain_faces`, `tongue_geometry`,
+  `enlarge_lower_teeth` in `rig_trex_blender.py`) so the mouth really opens:
+  11 sliver triangles that sew the lips shut are dropped, a 75-triangle tongue
+  fills the hollow floor, and the lower tooth rows are scaled 1.6x in height and
+  1.3x in width because the originals hid behind the lip. Everything else is
+  used untouched:
   its UVs, its material list and the six VRAM-page PNGs are used untouched.
   No retopology, no texture edits, no re-exported geometry.
 - **Editable rig**: a real armature (`TREX_EDITABLE_ARMATURE`, 33 bones,

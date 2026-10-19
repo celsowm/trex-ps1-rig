@@ -215,6 +215,14 @@ TEETH_TIP_MIN = 4                # this many down-tips make the upper row
 LOWER_TEETH_BASE = 21.0          # y where the lower tooth rows grow from
 LOWER_TEETH_LIFT = 1.6           # tooth height scale (source teeth are tiny)
 LOWER_TEETH_SPREAD = 1.3         # x scale: move the rows out to the jaw rim
+TONGUE_STEPS = 9                 # sections along the mouth floor
+TONGUE_Z = (20.8, 24.4)          # tongue root -> tip
+TONGUE_WIDTH = (0.95, 0.30)      # half-width at root and tip
+TONGUE_BASE = 20.85              # sunk just under the floor strip (y ~ 21.0)
+TONGUE_TOP = (21.40, 21.15)      # crest height at root and tip
+TONGUE_UV_FACE = 2268            # source triangle whose texel colours the tongue
+CURTAIN_HIGH = 0.5               # share of the lower-rim end of a curtain sliver
+CURTAIN_LOW = 0.35               # share of its head-side end
 JAW_SHELL_SEAM = 21.1           # tooth line y across the front of the mouth
 JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
 JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
@@ -324,6 +332,66 @@ def jaw_shell_shares(vertices, faces, jaw, throat):
             if share > 1e-6:
                 shares[i] = share
     return shares
+
+
+def mouth_curtain_faces(vertices, faces):
+    """Indices of the thin triangles that sew the closed mouth shut.
+
+    In the source the lip skin between the mouth corner and the lower rim is
+    a fan of slivers joining head-side vertices (jaw share <= CURTAIN_LOW)
+    to the lower rim (share >= CURTAIN_HIGH). Closed they are invisible; open
+    they stretch into a curtain across the gape that hides the lower teeth,
+    so build_mesh drops them and the mouth really opens.
+    """
+    jaw, throat = jaw_vertex_sets(vertices, faces)
+    shell = jaw_shell_shares(vertices, faces, jaw, throat)
+
+    def share(v):
+        return 1.0 if v in jaw or v in throat else shell.get(v, 0.0)
+
+    cut = []
+    for index, face in enumerate(faces):
+        if min(vertices[v][2] for v in face) < JAW_MIN_Z + 4.0:
+            continue
+        shares = [share(v) for v in face]
+        if (max(shares) >= CURTAIN_HIGH and min(shares) <= CURTAIN_LOW
+                and any(v in shell for v in face)):
+            cut.append(index)
+    return cut
+
+
+def tongue_geometry(first_index):
+    """(vertices, faces) of a tongue ridge lying on the mouth floor.
+
+    Cutting the mouth curtain leaves the head hollow behind the lips; this
+    closed prism (rounded top, tapering toward the tip) fills the gap between
+    the lower tooth rows. It is a new island inside the jaw box, so
+    jaw_vertex_sets() puts it on Jaw/JawTip with no extra rules.
+    """
+    sections = []
+    for k in range(TONGUE_STEPS + 1):
+        t = k / TONGUE_STEPS
+        z = TONGUE_Z[0] + (TONGUE_Z[1] - TONGUE_Z[0]) * t
+        w = TONGUE_WIDTH[0] + (TONGUE_WIDTH[1] - TONGUE_WIDTH[0]) * t
+        top = TONGUE_TOP[0] + (TONGUE_TOP[1] - TONGUE_TOP[0]) * t
+        sections.append([(-w, TONGUE_BASE, z), (-0.8 * w, top - 0.12, z),
+                         (0.0, top, z), (0.8 * w, top - 0.12, z),
+                         (w, TONGUE_BASE, z)])
+    verts = [p for section in sections for p in section]
+    faces = []
+    n = len(sections[0])
+    for k in range(TONGUE_STEPS):
+        for j in range(n - 1):
+            a = first_index + k * n + j
+            b = a + 1
+            c = a + n
+            d = c + 1
+            # winding so the top faces +y and the sides face away from the axis
+            faces += [(a, c, b), (b, c, d)]
+    last = first_index + TONGUE_STEPS * n
+    faces += [(last, last + 2, last + 1), (last, last + 3, last + 2),
+              (last, last + 4, last + 3)]
+    return verts, faces
 
 
 def enlarge_lower_teeth(vertices, faces):
@@ -494,7 +562,22 @@ def build_mesh(obj_path, parent_collection):
     vertices,faces,uv_coords,face_mats=parse_obj(obj_path)
     if not vertices or not faces:
         raise RuntimeError('OBJ did not contain vertices/faces')
+    uv_src=list(uv_coords)
+    mouth_material=face_mats[TONGUE_UV_FACE]
+    cut=set(mouth_curtain_faces(vertices,faces))
+    keep=[i for i in range(len(faces)) if i not in cut]
+    faces=[faces[i] for i in keep]
+    uv_coords=[uv_coords[i] for i in keep]
+    face_mats=[face_mats[i] for i in keep]
+    print(f'MOUTH: dropped {len(cut)} curtain triangles that sew the mouth shut')
     vertices=enlarge_lower_teeth(vertices,faces)
+    t_verts,t_faces=tongue_geometry(len(vertices))
+    centre=tuple(sum(c)/3.0 for c in zip(*uv_src[TONGUE_UV_FACE]))
+    vertices=list(vertices)+t_verts
+    faces=faces+t_faces
+    uv_coords=uv_coords+[(centre,)*3]*len(t_faces)
+    face_mats=face_mats+[mouth_material]*len(t_faces)
+    print(f'MOUTH: added a {len(t_faces)}-triangle tongue')
     mesh=bpy.data.meshes.new('Dino PS1 source topology and UVs')
     mesh.from_pydata([src_to_blender(v) for v in vertices],[],faces)
     mesh.update()

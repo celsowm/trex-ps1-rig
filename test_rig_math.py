@@ -9,14 +9,17 @@ script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
-           'down_tooth_tips','vertex_weights','parse_obj','jaw_shell_shares']
+           'down_tooth_tips','vertex_weights','parse_obj','jaw_shell_shares','mouth_curtain_faces',
+           'tongue_geometry','enlarge_lower_teeth']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
           and getattr(node.targets[0],'id','') in
           ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
            'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_SEAM','JAW_SHELL_BAND',
-           'JAW_SHELL_CORNER'))]
+           'JAW_SHELL_CORNER','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
+           'TONGUE_Z','TONGUE_WIDTH','TONGUE_BASE','TONGUE_TOP',
+           'LOWER_TEETH_BASE','LOWER_TEETH_LIFT','LOWER_TEETH_SPREAD'))]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -97,6 +100,23 @@ mouth=env['blend_weights'](env['vertex_weights'](vertices[chin]),
                            shell[chin])
 assert abs(sum(mouth.values())-1.0)<1e-5 and 'JawTip' in mouth, \
     'Blended chin weights must land on Jaw/JawTip'
+# Mouth opening: the curtain slivers that sew the lips shut are found and
+# dropped; the tongue is a closed, jaw-box island that lands on Jaw/JawTip;
+# the lower tooth rows grow without moving their roots.
+cut=env['mouth_curtain_faces'](vertices,faces)
+assert len(cut)==11, f'Curtain triangles changed: {len(cut)} (expected 11)'
+kept=[f for i,f in enumerate(faces) if i not in set(cut)]
+tv,tf=env['tongue_geometry'](len(vertices))
+assert tv and tf and max(max(f) for f in tf)==len(vertices)+len(tv)-1, 'Tongue indices out of range'
+whole=list(vertices)+tv
+jaw2,_=env['jaw_vertex_sets'](whole,kept+tf)
+assert set(range(len(vertices),len(whole)))<=jaw2, 'Tongue must ride the jaw bones'
+big=env['enlarge_lower_teeth'](vertices,faces)
+moved=[i for i in range(len(vertices)) if big[i]!=vertices[i]]
+assert len(moved)==74 and max(big[i][1] for i in moved)>max(vertices[i][1] for i in moved)+0.4, \
+    'Lower teeth rows changed'
+print(f'PASS: mouth opens ({len(cut)} curtain triangles dropped, {len(tf)}-triangle tongue, '
+      f'{len(moved)} lower-tooth vertices enlarged)')
 print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '
       f'upper tooth row {len(teeth[0])} vertices on Head), '
       f'throat {len(throat)} vertices blend toward the chin, '
