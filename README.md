@@ -19,7 +19,7 @@ editable Blender rig and reconstructed in-place animations:
   table. Feet plant flat, sweep back during stance and clear the ground
   during swing. The jaw breathes a few degrees twice per stride.
 - **Roar**: a 40-frame one-shot clip (`Roar`, 1.33 s): head and neck lift,
-  the mouth snaps open to 24°, growls with a pulsing jaw, snaps shut and
+  the mouth snaps open to 34°, growls with a pulsing jaw, snaps shut and
   settles back into the rest pose.
 
 The original animation data does not exist in the OBJ, so the walk is a
