@@ -22,6 +22,7 @@ Requirements (see viewer/requirements.txt):
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -186,4 +187,10 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    # pyglet leaves AppKit tracking-area callbacks alive; macOS invokes them
+    # again while CPython finalizes the interpreter, which segfaults (crash
+    # dialog on quit). Exit straight away instead of running finalization.
+    code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)

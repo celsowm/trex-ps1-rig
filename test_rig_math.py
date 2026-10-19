@@ -9,13 +9,14 @@ script=base/'rig_trex_blender.py'
 mod=ast.parse(script.read_text(encoding='utf8'))
 functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
-           'down_tooth_tips','vertex_weights','parse_obj']
+           'down_tooth_tips','vertex_weights','parse_obj','jaw_shell_shares']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
           and getattr(node.targets[0],'id','') in
           ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
-           'TEETH_TIP_MARGIN','TEETH_TIP_MIN'))]
+           'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_SEAM','JAW_SHELL_BAND',
+           'JAW_SHELL_CORNER'))]
 env={'math':math,'defaultdict':defaultdict}
 exec(compile(ast.Module(body=body,type_ignores=[]),str(script),'exec'),env)
 vertices,faces,face_uv,face_mats=env['parse_obj'](base/'source'/'dino'/'dino.obj')
@@ -77,9 +78,29 @@ for island in env['mesh_islands'](len(vertices),faces):
 assert upper and not (set(upper)&jaw), 'Upper mouth pieces must stay off the jaw bones'
 front=max(throat,key=lambda i: vertices[i][2])
 assert env['smoothstep'](18.5,23.0,vertices[front][2])>0.9, 'Throat front must follow the jaw'
+
+# The outer head shell closes the mouth seamlessly, so the chin and the
+# lower-lip skin below the tooth line are not islands of their own: they
+# must be found as a blended skin region that rides the jaw, or the closed
+# chin stays on the skull while the thin inner jaw drops away.
+shell=env['jaw_shell_shares'](vertices,faces,jaw,throat)
+assert len(shell)==68, f'Jaw shell changed: {len(shell)} vertices (expected 68)'
+assert not (set(shell)&(set(jaw)|set(throat))), 'Jaw shell must not overlap jaw/throat'
+for i,share in shell.items():
+    x,y,z=vertices[i]
+    assert 0.0<share<=1.0, f'Shell vertex {i} share {share} out of range'
+    assert 19.4<=y<=21.6 and z>=19.8, f'Shell vertex {i} escapes the mouth band'
+chin=min(shell,key=lambda i: vertices[i][1])
+assert shell[chin]>0.99, 'Chin bottom must ride the jaw fully'
+mouth=env['blend_weights'](env['vertex_weights'](vertices[chin]),
+                           env['jaw_weights'](vertices[chin][2]),
+                           shell[chin])
+assert abs(sum(mouth.values())-1.0)<1e-5 and 'JawTip' in mouth, \
+    'Blended chin weights must land on Jaw/JawTip'
 print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '
       f'upper tooth row {len(teeth[0])} vertices on Head), '
-      f'throat {len(throat)} vertices blend toward the chin')
+      f'throat {len(throat)} vertices blend toward the chin, '
+      f'chin/lip shell {len(shell)} vertices blend onto the jaw')
 
 # Walk-cycle sanity without Blender: the foot-target table must stay above
 # ground, start/end identical for the loop, and cover one full stride.

@@ -207,6 +207,14 @@ JAW_TIP_BAND = (21.5, 24.0)      # Jaw -> JawTip blend along the mouth
 THROAT_BAND = (18.5, 23.0)       # jaw share ramps in along the throat skin
 TEETH_TIP_MARGIN = 0.02          # a tooth tip clears its whole base by this
 TEETH_TIP_MIN = 4                # this many down-tips make the upper row
+# The outer head shell closes the mouth continuously, so its chin and lower
+# lip are not separate islands: they are a skin region of the big head island.
+# That region blends onto the jaw so the closed-mouth chin and the lip below
+# the tooth line descend with the teeth instead of hanging on the skull.
+# Blend ramps along y around the tooth line and fades out behind the corner.
+JAW_SHELL_SEAM = 21.1            # tooth line y across the front of the mouth
+JAW_SHELL_BAND = 0.4             # skin blend half-width around the tooth line
+JAW_SHELL_CORNER = (19.8, 21.4)  # the blend fades out behind this z band
 
 
 def mesh_islands(vertex_count, faces):
@@ -271,6 +279,48 @@ def jaw_vertex_sets(vertices, faces):
         elif max(ys) <= 20.6 and max(zs) >= 19.0 and min(zs) < JAW_MIN_Z:
             throat.update(island)
     return jaw, throat
+
+
+def jaw_shell_shares(vertices, faces, jaw, throat):
+    """{vertex: jaw share} for the closed-mouth head skin around the jaw.
+
+    The big outer shell island wraps the whole head, so the chin and the
+    lower-lip skin below the tooth line cannot be split off by islands. They
+    prove themselves by dipping below the mouth line in front of the corner;
+    those vertices get a share of Jaw/JawTip that ramps from 1 below the
+    tooth line to 0 above it, fading to 0 behind the mouth corner so the
+    skin stretches at the corner instead of tearing. The upper tooth row is
+    excluded like in jaw_vertex_sets: its fangs dip past the line too.
+    """
+    adjacency = defaultdict(set)
+    for face in faces:
+        for a, b in zip(face, face[1:] + face[:1]):
+            adjacency[a].add(b)
+            adjacency[b].add(a)
+    probe_z = JAW_SHELL_SEAM - JAW_SHELL_BAND
+    shares = {}
+    for island in mesh_islands(len(vertices), faces):
+        if set(island) & (jaw | throat) or len(island) < 20:
+            continue
+        ys = [vertices[i][1] for i in island]
+        zs = [vertices[i][2] for i in island]
+        in_jaw_box = min(zs) >= JAW_MIN_Z and min(ys) <= JAW_MAX_TOP
+        upper_teeth = (len(down_tooth_tips(island, vertices, adjacency))
+                       >= TEETH_TIP_MIN)
+        if in_jaw_box and upper_teeth:
+            continue
+        if not any(vertices[i][2] > probe_z and 18.0 < vertices[i][1] < probe_z
+                   and abs(vertices[i][0]) < 2.5 for i in island):
+            continue
+        for i in island:
+            x, y, z = vertices[i]
+            below = 1.0 - smoothstep(JAW_SHELL_SEAM - JAW_SHELL_BAND,
+                                     JAW_SHELL_SEAM + JAW_SHELL_BAND, y)
+            front = smoothstep(*JAW_SHELL_CORNER, z)
+            share = below * front
+            if share > 1e-6:
+                shares[i] = share
+    return shares
 
 
 def jaw_weights(z):
@@ -473,7 +523,7 @@ def build_armature(parent_collection):
     return obj
 
 
-def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset()):
+def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset(),shell=None):
     deform_names=[name for name,_,_,_,deform in BONE_DEF if deform]
     vgroups={name:mesh_obj.vertex_groups.new(name=name) for name in deform_names}
     stats=defaultdict(int)
@@ -488,6 +538,11 @@ def bind(mesh_obj,src_vertices,rig_obj,jaw=frozenset(),throat=frozenset()):
             # jaw toward the chin so an open mouth never shows through.
             weights=blend_weights(vertex_weights(v),jaw_weights(v[2]),
                                   smoothstep(*THROAT_BAND,v[2]))
+        elif shell and i in shell:
+            # Closed-mouth head skin below the tooth line: the chin and the
+            # lower-lip skin ride the jaw with a share that fades above the
+            # line and behind the mouth corner (see jaw_shell_shares).
+            weights=blend_weights(vertex_weights(v),jaw_weights(v[2]),shell[i])
         else:
             weights=vertex_weights(v)
         if abs(sum(weights.values())-1.0)>1e-5:
@@ -556,9 +611,11 @@ def main():
     mesh,verts,faces=build_mesh(obj_path,coll)
     rig=build_armature(coll)
     jaw,throat=jaw_vertex_sets(verts,faces)
+    shell=jaw_shell_shares(verts,faces,jaw,throat)
     print(f'JAW: lower-jaw islands cover {len(jaw)} vertices, '
-          f'upper tooth row stays on Head, throat skin blends over {len(throat)}')
-    stats=bind(mesh,verts,rig,jaw,throat)
+          f'upper tooth row stays on Head, throat skin blends over {len(throat)}, '
+          f'chin/lip skin blends over {len(shell)}')
+    stats=bind(mesh,verts,rig,jaw,throat,shell)
     set_viewport(mesh,rig)
     bpy.context.scene.frame_set(1)
     # Keep the render engine supplied by the installed Blender version.
