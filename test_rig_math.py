@@ -11,14 +11,14 @@ functions=['smoothstep','axial_weights','limb_bands','split_foot_toes',
            'mesh_islands','jaw_vertex_sets','jaw_weights','blend_weights',
            'down_tooth_tips','vertex_weights','parse_obj','lip_line_y','split_lip_line','jaw_shell_shares','mouth_curtain_faces',
            'tongue_geometry','lower_teeth_geometry','vertex_weight_table',
-           'weld_coincident']
+           'weld_coincident','gape_stretch_faces','skin_donors']
 body=[node for node in mod.body
       if (isinstance(node,ast.FunctionDef) and node.name in functions)
       or (isinstance(node,ast.Assign)
           and getattr(node.targets[0],'id','') in
           ('TOE_LANES','JAW_MIN_Z','JAW_MAX_TOP','JAW_TIP_BAND','THROAT_BAND',
            'TEETH_TIP_MARGIN','TEETH_TIP_MIN','JAW_SHELL_PROBE','JAW_SHELL_BAND','LIP_CUT_LIFT','LIP_CUT_GAP',
-           'JAW_SHELL_CORNER','WELD_LIP','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
+           'JAW_SHELL_CORNER','WELD_LIP','GAPE_ANGLE','GAPE_STRETCH','GAPE_MIN_EDGE','JOINTS','CURTAIN_HIGH','CURTAIN_LOW','TONGUE_STEPS',
            'TONGUE_Z','TONGUE_WIDTH','TONGUE_BASE','TONGUE_TOP',
            'LOWER_RIM','LOWER_TEETH','LOWER_TEETH_SPAN','LOWER_TEETH_INSET',
            'LOWER_TEETH_SINK','LOWER_TEETH_HEIGHT','LOWER_TEETH_RADIUS'))]
@@ -145,6 +145,11 @@ for members in clusters.values():
         assert all(abs(a.get(n,0.0)-b.get(n,0.0))<1e-3 for n in set(a)|set(b)), \
             f'Vertices {members} share a position but not weights'
 assert all(abs(sum(w.values())-1.0)<1e-5 and len(w)<=4 for w in table), 'Welded weights invalid'
+# Faces the open jaw warps borrow an undistorted same-page neighbour's UVs.
+warp=env['gape_stretch_faces'](vertices,faces,table)
+donors=env['skin_donors'](faces,warp,face_mats,face_uv)
+assert warp and len(donors)>=0.8*len(warp), f'Too few donors: {len(donors)}/{len(warp)}'
+assert all(d not in set(warp) and face_mats[d]==face_mats[w] for w,d in donors.items()), 'Bad UV donor'
 print(f'PASS: mouth opens ({len(cut)} curtain triangles dropped, skin cut along the lip line, {len(tf)}-triangle tongue, '
       f'{len(nf)//3} lower cone teeth)')
 print(f'PASS: lower jaw {len(jaw)} vertices on Jaw/JawTip ({len(upper)} upper-mouth vertices kept off it, '

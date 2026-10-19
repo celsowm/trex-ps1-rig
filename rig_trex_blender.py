@@ -239,6 +239,9 @@ LIP_CUT_LIFT = 0.06              # mouth cut runs this far above LOWER_RIM
 LIP_CUT_GAP = 0.005              # half-gap between the two copies of a cut point
 JAW_SHELL_CORNER = (17.4, 21.4)  # the blend fades out behind this z band
 WELD_LIP = (0.3, 0.6)            # lip-rim share band: skin weights -> jaw weights
+GAPE_ANGLE = 30.0                # jaw opening (deg) the stretch test assumes (ROAR_OPEN)
+GAPE_STRETCH = 1.4               # an edge growing/shrinking by this when it opens...
+GAPE_MIN_EDGE = 0.5              # ...on a face this big swaps in a neighbour's UVs
 
 
 def mesh_islands(vertex_count, faces):
@@ -774,6 +777,78 @@ def vertex_weight_table(src_vertices,jaw=frozenset(),throat=frozenset(),shell=No
     return weld_coincident(src_vertices,table,jaw,shell or {})
 
 
+def gape_stretch_faces(vertices, faces, table):
+    """Faces that stretch hard when the jaw opens GAPE_ANGLE degrees.
+
+    The mouth corner has to stretch somewhere; on those few triangles the
+    PS1 texture smears into stripes. Each vertex is moved by its Jaw/JawTip
+    share of a hinge rotation (linear blend, like the skinning); a face
+    with an edge that grows or shrinks past GAPE_STRETCH (squashed texels
+    stripe as badly as stretched ones) is listed; main() gives it an
+    undistorted neighbour's UVs (skin_donors) so it keeps mottled skin.
+    """
+    hy, hz = JOINTS['Jaw'][1], JOINTS['Jaw'][2]
+    c, s = math.cos(math.radians(GAPE_ANGLE)), math.sin(math.radians(GAPE_ANGLE))
+
+    def pose(i):
+        x, y, z = vertices[i]
+        w = table[i].get('Jaw', 0.0) + table[i].get('JawTip', 0.0)
+        dy, dz = y - hy, z - hz
+        return (x, (1 - w) * y + w * (hy + dy * c - dz * s),
+                (1 - w) * z + w * (hz + dy * s + dz * c))
+
+    def edges(points):
+        return [math.dist(points[k], points[(k + 1) % 3]) for k in range(3)]
+
+    out = []
+    for index, face in enumerate(faces):
+        before = edges([vertices[i] for i in face])
+        after = edges([pose(i) for i in face])
+        ratios = [a / max(b, 1e-6) for a, b in zip(after, before)]
+        warp = max(max(ratios), 1.0 / max(min(ratios), 1e-6))
+        if max(after + before) >= GAPE_MIN_EDGE and warp > GAPE_STRETCH:
+            out.append(index)
+    return out
+
+
+def skin_donors(faces, warped, materials, uvs, rings=2):
+    """{warped face: donor face} - a nearby unwarped face on the same page.
+
+    Looks up to `rings` shared-edge steps out from each warped face and picks
+    the unwarped, same-material face with the largest UV triangle, so the
+    borrowed texels are not themselves a sliver that would smear again.
+    """
+    warped = set(warped)
+    by_edge = defaultdict(list)
+    for index, face in enumerate(faces):
+        for a, b in zip(face, face[1:] + face[:1]):
+            by_edge[(min(a, b), max(a, b))].append(index)
+
+    def uv_area(index):
+        (u0, v0), (u1, v1), (u2, v2) = uvs[index]
+        return abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)) / 2
+
+    donors = {}
+    for start in sorted(warped):
+        seen, ring = {start}, [start]
+        candidates = []
+        for _ in range(rings):
+            nxt = []
+            for current in ring:
+                face = faces[current]
+                for a, b in zip(face, face[1:] + face[:1]):
+                    for other in by_edge[(min(a, b), max(a, b))]:
+                        if other not in seen:
+                            seen.add(other)
+                            nxt.append(other)
+            candidates += [f for f in nxt if f not in warped
+                           and materials[f] == materials[start]]
+            ring = nxt
+        if candidates:
+            donors[start] = max(candidates, key=uv_area)
+    return donors
+
+
 def weld_coincident(src_vertices,table,jaw,shell):
     """Give vertices that share a position the same weights.
 
@@ -894,6 +969,16 @@ def main():
           f'upper tooth row stays on Head, throat skin blends over {len(throat)}, '
           f'chin/lip skin blends over {len(shell)}')
     stats=bind(mesh,verts,rig,jaw,throat,shell)
+    smear=gape_stretch_faces(verts,faces,vertex_weight_table(verts,jaw,throat,shell))
+    uvlayer=mesh.data.uv_layers[0]
+    polys=mesh.data.polygons
+    donors=skin_donors(faces,smear,[p.material_index for p in polys],
+                       [[tuple(uvlayer.data[li].uv) for li in p.loop_indices] for p in polys])
+    for index,donor in donors.items():
+        uv=[tuple(uvlayer.data[li].uv) for li in polys[donor].loop_indices]
+        for li,value in zip(polys[index].loop_indices,uv):
+            uvlayer.data[li].uv=value
+    print(f'MOUTH: {len(donors)} of {len(smear)} gape-warped faces borrow an undistorted neighbour\'s texels')
     set_viewport(mesh,rig)
     bpy.context.scene.frame_set(1)
     # Keep the render engine supplied by the installed Blender version.
